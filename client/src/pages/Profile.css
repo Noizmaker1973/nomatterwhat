@@ -1,0 +1,55 @@
+.profile-container {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 2rem 0;
+}
+
+.profile-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 3rem;
+}
+
+.profile-card h1 {
+  margin-bottom: 2rem;
+  font-size: 2rem;
+}
+
+.profile-section {
+  margin-bottom: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-section:last-child {
+  border-bottom: none;
+}
+
+.profile-section h2 {
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+}
+
+.profile-section p {
+  color: #6b7280;
+  line-height: 1.6;
+}
+
+.profile-section ul {
+  list-style: none;
+  margin-top: 1rem;
+}
+
+.profile-section ul li {
+  padding: 0.5rem 0;
+  color: #6b7280;
+}
+
+.logout-btn {
+  background: linear-gradient(135deg, var(--danger) 0%, #dc2626 100%);
+  color: white;
+  width: 100%;
+  margin-top: 2rem;
+  padding: 1rem;
+}
