@@ -1,7 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { auth } from '../App';
+import { supabase } from '../App';
 import { AuthContext } from '../context/AuthContext';
 import './Auth.css';
 
@@ -21,12 +20,17 @@ function Register() {
     setLoading(true);
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await updateProfile(userCredential.user, { displayName });
-      setUser(userCredential.user);
+      const { data, error: signUpError } = await supabase.auth.signUpWithPassword({
+        email,
+        password,
+      });
+
+      if (signUpError) throw signUpError;
+
+      setUser(data.user);
       navigate('/');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }

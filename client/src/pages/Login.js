@@ -1,7 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../App';
+import { supabase } from '../App';
 import { AuthContext } from '../context/AuthContext';
 import './Auth.css';
 
@@ -19,11 +18,17 @@ function Login() {
     setLoading(true);
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      setUser(userCredential.user);
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError) throw signInError;
+
+      setUser(data.user);
       navigate('/');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Login failed');
     } finally {
       setLoading(false);
     }

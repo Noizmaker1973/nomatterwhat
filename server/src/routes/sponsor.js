@@ -1,5 +1,5 @@
 const express = require('express');
-const { db } = require('../config/firebase');
+const { supabase } = require('../config/firebase');
 const { verifyToken } = require('../middleware/auth');
 const { Anthropic } = require('@anthropic-ai/sdk');
 const router = express.Router();
@@ -8,7 +8,7 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const SPONSOR_SYSTEM_PROMPT = `You are an AI sponsor for someone in recovery from substance abuse. Your role is to provide support based on the principles of Alcoholics Anonymous (AA) and Narcotics Anonymous (NA). 
+const SPONSOR_SYSTEM_PROMPT = `You are an AI sponsor for someone in recovery from substance abuse. Your role is to provide support based on the principles of Alcoholics Anonymous (AA) and Narcotics Anonymous (NA).
 
 Key principles to reinforce:
 - The 12 steps of AA/NA
@@ -33,7 +33,7 @@ Remember: You are a supplement to, not a replacement for, human connection and p
 router.post('/chat', verifyToken, async (req, res) => {
   try {
     const { message, conversationHistory = [] } = req.body;
-    const userId = req.user.uid;
+    const userId = req.user.id;
 
     const messages = [
       ...conversationHistory.map(msg => ({
@@ -55,14 +55,12 @@ router.post('/chat', verifyToken, async (req, res) => {
 
     const assistantMessage = response.content[0].text;
 
-    await db
-      .collection('users')
-      .doc(userId)
-      .collection('sponsor_conversations')
-      .add({
-        userMessage: message,
-        sponsorResponse: assistantMessage,
-        timestamp: new Date(),
+    await supabase
+      .from('sponsor_conversations')
+      .insert({
+        user_id: userId,
+        user_message: message,
+        sponsor_response: assistantMessage,
       });
 
     res.json({
@@ -77,24 +75,22 @@ router.post('/chat', verifyToken, async (req, res) => {
 
 router.get('/conversation-history', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
-    const limit = req.query.limit || 50;
+    const userId = req.user.id;
+    const limit = parseInt(req.query.limit || 50);
 
-    const conversationSnap = await db
-      .collection('users')
-      .doc(userId)
-      .collection('sponsor_conversations')
-      .orderBy('timestamp', 'desc')
-      .limit(parseInt(limit))
-      .get();
+    const { data, error } = await supabase
+      .from('sponsor_conversations')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
-    const conversations = conversationSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      timestamp: doc.data().timestamp?.toISOString(),
-    }));
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
-    res.json({ conversations: conversations.reverse() });
+    const conversations = data.reverse();
+    res.json({ conversations });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

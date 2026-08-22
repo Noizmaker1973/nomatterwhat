@@ -1,24 +1,31 @@
 const express = require('express');
-const { db } = require('../config/firebase');
+const { supabase } = require('../config/firebase');
 const { verifyToken } = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/start-journey', verifyToken, async (req, res) => {
   try {
     const { sobrietyDate, notes } = req.body;
-    const userId = req.user.uid;
+    const userId = req.user.id;
 
-    const journeyRef = await db.collection('users').doc(userId).collection('recovery').add({
-      sobrietyDate: new Date(sobrietyDate),
-      startedAt: new Date(),
-      notes,
-      milestones: [],
-      lastUpdated: new Date(),
-    });
+    const { data, error } = await supabase
+      .from('recovery_journeys')
+      .insert({
+        user_id: userId,
+        sobriety_date: sobrietyDate,
+        notes,
+        milestones: [],
+      })
+      .select()
+      .single();
 
-    res.json({ 
-      id: journeyRef.id, 
-      message: 'Recovery journey started successfully' 
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({
+      id: data.id,
+      message: 'Recovery journey started successfully'
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -27,28 +34,32 @@ router.post('/start-journey', verifyToken, async (req, res) => {
 
 router.get('/journey', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
-    const journeySnap = await db
-      .collection('users')
-      .doc(userId)
-      .collection('recovery')
-      .orderBy('startedAt', 'desc')
-      .limit(1)
-      .get();
+    const userId = req.user.id;
 
-    if (journeySnap.empty) {
+    const { data, error } = await supabase
+      .from('recovery_journeys')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      return res.status(400).json({ error: error.message });
+    }
+
+    if (!data) {
       return res.json({ journey: null });
     }
 
-    const journey = journeySnap.docs[0];
-    const data = journey.data();
-    const daysClean = Math.floor((new Date() - data.sobrietyDate) / (1000 * 60 * 60 * 24));
+    const daysClean = Math.floor(
+      (new Date() - new Date(data.sobriety_date)) / (1000 * 60 * 60 * 24)
+    );
 
     res.json({
-      id: journey.id,
+      id: data.id,
       ...data,
       daysClean,
-      sobrietyDate: data.sobrietyDate.toISOString(),
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -58,25 +69,38 @@ router.get('/journey', verifyToken, async (req, res) => {
 router.post('/add-milestone', verifyToken, async (req, res) => {
   try {
     const { journeyId, title, description } = req.body;
-    const userId = req.user.uid;
+    const userId = req.user.id;
 
-    const journeyRef = db
-      .collection('users')
-      .doc(userId)
-      .collection('recovery')
-      .doc(journeyId);
+    const { data: journey, error: fetchError } = await supabase
+      .from('recovery_journeys')
+      .select('milestones')
+      .eq('id', journeyId)
+      .eq('user_id', userId)
+      .single();
+
+    if (fetchError) {
+      return res.status(400).json({ error: fetchError.message });
+    }
 
     const milestone = {
       id: Date.now(),
       title,
       description,
-      achievedAt: new Date(),
+      achievedAt: new Date().toISOString(),
     };
 
-    await journeyRef.update({
-      milestones: admin.firestore.FieldValue.arrayUnion(milestone),
-      lastUpdated: new Date(),
-    });
+    const updatedMilestones = [...(journey.milestones || []), milestone];
+
+    const { data, error } = await supabase
+      .from('recovery_journeys')
+      .update({ milestones: updatedMilestones })
+      .eq('id', journeyId)
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
     res.json({ milestone });
   } catch (error) {

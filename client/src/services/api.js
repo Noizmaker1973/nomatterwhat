@@ -1,10 +1,16 @@
 import axios from 'axios';
-import { auth } from '../App';
+import { supabase } from '../App';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const getHeaders = async () => {
-  const token = await auth.currentUser?.getIdToken();
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+
+  if (!token) {
+    throw new Error('No authentication token available');
+  }
+
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',

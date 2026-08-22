@@ -1,32 +1,20 @@
-const admin = require('firebase-admin');
-const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Firebase Admin SDK
-// Make sure to set FIREBASE_CONFIG_PATH environment variable or place your service account key in this directory
-let serviceAccountPath = process.env.FIREBASE_CONFIG_PATH;
-if (!serviceAccountPath) {
-  serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+  console.error('ERROR: Missing SUPABASE_URL or SUPABASE_ANON_KEY in .env file');
+  console.error('Please create a Supabase project at https://supabase.com and add your credentials to .env');
+  process.exit(1);
 }
 
-try {
-  const serviceAccount = require(serviceAccountPath);
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL,
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  });
-} catch (error) {
-  console.warn('Firebase service account not found. In production, ensure FIREBASE_CONFIG_PATH is set.');
-  // For development, Firebase emulator can be used
-  if (process.env.FIREBASE_EMULATOR_HOST) {
-    admin.initializeApp({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-    });
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY,
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: false,
+    },
   }
-}
+);
 
-const db = admin.firestore();
-const storage = admin.storage();
-const auth = admin.auth();
-
-module.exports = { admin, db, storage, auth };
+module.exports = { supabase };

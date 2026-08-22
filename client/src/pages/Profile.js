@@ -1,7 +1,6 @@
 import React, { useContext } from 'react';
-import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../App';
+import { supabase } from '../App';
 import { AuthContext } from '../context/AuthContext';
 import './Profile.css';
 
@@ -10,7 +9,7 @@ function Profile() {
   const navigate = useNavigate();
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await supabase.auth.signOut();
     setUser(null);
     navigate('/login');
   };
@@ -19,12 +18,11 @@ function Profile() {
     <div className="profile-container">
       <div className="profile-card">
         <h1>Your Profile</h1>
-        
+
         <div className="profile-section">
           <h2>Account Information</h2>
-          <p><strong>Name:</strong> {user?.displayName || 'Anonymous'}</p>
           <p><strong>Email:</strong> {user?.email}</p>
-          <p><strong>Member Since:</strong> {new Date(user?.metadata?.creationTime).toLocaleDateString()}</p>
+          <p><strong>Member Since:</strong> {new Date(user?.created_at).toLocaleDateString()}</p>
         </div>
 
         <div className="profile-section">

@@ -1,47 +1,52 @@
 const express = require('express');
-const { db, storage } = require('../config/firebase');
+const { supabase } = require('../config/firebase');
 const { verifyToken } = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/upload', verifyToken, async (req, res) => {
   try {
     const { title, description, mediaData, mediaType, duration } = req.body;
-    const userId = req.user.uid;
-
-    const bucket = storage.bucket();
-    const fileName = `stories/${userId}/${Date.now()}-${title.replace(/\s+/g, '-')}`;
-    const file = bucket.file(fileName);
+    const userId = req.user.id;
 
     const base64Data = mediaData.split(',')[1];
     const buffer = Buffer.from(base64Data, 'base64');
 
-    await file.save(buffer, {
-      metadata: {
+    const fileName = `${userId}/${Date.now()}-${title.replace(/\s+/g, '-')}`;
+    const { error: storageError } = await supabase.storage
+      .from('stories')
+      .upload(fileName, buffer, {
         contentType: mediaType,
-      },
-    });
+      });
 
-    const [url] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 15 * 24 * 60 * 60 * 1000, // 15 days
-    });
+    if (storageError) {
+      return res.status(400).json({ error: storageError.message });
+    }
 
-    const storyRef = await db.collection('stories').add({
-      userId,
-      title,
-      description,
-      mediaUrl: url,
-      mediaType,
-      duration,
-      createdAt: new Date(),
-      likes: 0,
-      comments: [],
-      isPublic: true,
-    });
+    const { data: { publicUrl } } = supabase.storage
+      .from('stories')
+      .getPublicUrl(fileName);
+
+    const { data, error } = await supabase
+      .from('stories')
+      .insert({
+        user_id: userId,
+        title,
+        description,
+        media_url: publicUrl,
+        media_type: mediaType,
+        duration,
+        likes: 0,
+        is_public: true,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
     res.json({
-      id: storyRef.id,
+      id: data.id,
       message: 'Story uploaded successfully',
     });
   } catch (error) {
@@ -52,24 +57,21 @@ router.post('/upload', verifyToken, async (req, res) => {
 
 router.get('/public', async (req, res) => {
   try {
-    const limit = req.query.limit || 20;
-    const offset = req.query.offset || 0;
+    const limit = parseInt(req.query.limit || 20);
+    const offset = parseInt(req.query.offset || 0);
 
-    const storiesSnap = await db
-      .collection('stories')
-      .where('isPublic', '==', true)
-      .orderBy('createdAt', 'desc')
-      .offset(parseInt(offset))
-      .limit(parseInt(limit))
-      .get();
+    const { data, error } = await supabase
+      .from('stories')
+      .select('*')
+      .eq('is_public', true)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
-    const stories = storiesSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toISOString(),
-    }));
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
-    res.json({ stories });
+    res.json({ stories: data });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -77,21 +79,19 @@ router.get('/public', async (req, res) => {
 
 router.get('/my-stories', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
+    const userId = req.user.id;
 
-    const storiesSnap = await db
-      .collection('stories')
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .get();
+    const { data, error } = await supabase
+      .from('stories')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
 
-    const stories = storiesSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toISOString(),
-    }));
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
-    res.json({ stories });
+    res.json({ stories: data });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -100,11 +100,25 @@ router.get('/my-stories', verifyToken, async (req, res) => {
 router.post('/:storyId/like', verifyToken, async (req, res) => {
   try {
     const { storyId } = req.params;
-    const storyRef = db.collection('stories').doc(storyId);
 
-    await storyRef.update({
-      likes: admin.firestore.FieldValue.increment(1),
-    });
+    const { data: story, error: fetchError } = await supabase
+      .from('stories')
+      .select('likes')
+      .eq('id', storyId)
+      .single();
+
+    if (fetchError) {
+      return res.status(400).json({ error: fetchError.message });
+    }
+
+    const { error } = await supabase
+      .from('stories')
+      .update({ likes: (story.likes || 0) + 1 })
+      .eq('id', storyId);
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
     res.json({ message: 'Liked successfully' });
   } catch (error) {

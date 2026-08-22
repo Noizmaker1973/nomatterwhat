@@ -1,7 +1,6 @@
 import React, { useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signOut } from 'firebase/auth';
-import { auth } from '../App';
+import { supabase } from '../App';
 import { AuthContext } from '../context/AuthContext';
 import './Navbar.css';
 
@@ -10,7 +9,7 @@ function Navbar() {
   const { setUser } = useContext(AuthContext);
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await supabase.auth.signOut();
     setUser(null);
     navigate('/login');
   };

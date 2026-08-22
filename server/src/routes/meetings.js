@@ -1,11 +1,9 @@
 const express = require('express');
-const { db } = require('../config/firebase');
+const { supabase } = require('../config/firebase');
 const { verifyToken } = require('../middleware/auth');
-const axios = require('axios');
 const router = express.Router();
 
-// This is a placeholder for AA meeting data
-// In production, you'd integrate with an actual AA/NA meeting directory API
+// Sample meetings - can be replaced with real API integration
 const SAMPLE_MEETINGS = [
   {
     id: '1',
@@ -53,7 +51,7 @@ router.get('/nearby', async (req, res) => {
     const filteredMeetings = SAMPLE_MEETINGS
       .filter(meeting => {
         if (type !== 'both' && meeting.type !== type) return false;
-        
+
         const distance = calculateDistance(
           userLat,
           userLng,
@@ -77,14 +75,18 @@ router.get('/nearby', async (req, res) => {
 router.post('/save-favorite', verifyToken, async (req, res) => {
   try {
     const { meetingId } = req.body;
-    const userId = req.user.uid;
+    const userId = req.user.id;
 
-    await db
-      .collection('users')
-      .doc(userId)
-      .collection('favorite_meetings')
-      .doc(meetingId)
-      .set({ savedAt: new Date() });
+    const { error } = await supabase
+      .from('favorite_meetings')
+      .upsert({
+        user_id: userId,
+        meeting_id: meetingId,
+      });
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
     res.json({ message: 'Meeting added to favorites' });
   } catch (error) {
@@ -94,14 +96,18 @@ router.post('/save-favorite', verifyToken, async (req, res) => {
 
 router.get('/favorites', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.uid;
-    const favoritesSnap = await db
-      .collection('users')
-      .doc(userId)
-      .collection('favorite_meetings')
-      .get();
+    const userId = req.user.id;
 
-    const favoriteIds = favoritesSnap.docs.map(doc => doc.id);
+    const { data, error } = await supabase
+      .from('favorite_meetings')
+      .select('meeting_id')
+      .eq('user_id', userId);
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    const favoriteIds = data.map(fav => fav.meeting_id);
     const favoriteMeetings = SAMPLE_MEETINGS.filter(m => favoriteIds.includes(m.id));
 
     res.json({ meetings: favoriteMeetings });
