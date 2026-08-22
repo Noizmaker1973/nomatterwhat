@@ -20,7 +20,7 @@ function Register() {
     setLoading(true);
 
     try {
-      const { data, error: signUpError } = await supabase.auth.signUpWithPassword({
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
       });
