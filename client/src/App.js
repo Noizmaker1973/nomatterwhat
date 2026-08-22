@@ -14,6 +14,9 @@ import Profile from './pages/Profile';
 
 import './App.css';
 
+console.log('SUPABASE_URL:', process.env.REACT_APP_SUPABASE_URL);
+console.log('SUPABASE_ANON_KEY:', process.env.REACT_APP_SUPABASE_ANON_KEY);
+
 export const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL,
   process.env.REACT_APP_SUPABASE_ANON_KEY
