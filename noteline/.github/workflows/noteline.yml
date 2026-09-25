@@ -1,0 +1,56 @@
+name: NoteLine weekly
+
+# Call reports change once a quarter, so weekly is plenty; the Deedline
+# foreclosure feed is re-read on every run. Monday 11:47 UTC (~7:47am Eastern).
+on:
+  schedule:
+    - cron: "47 11 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: noteline-weekly
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tests
+        run: python -m unittest discover tests
+
+      # 1. FDIC call reports + Deedline filings + (optional) SBA -> scored list.
+      - name: Build the lender list
+        env:
+          DEEDLINE_TOKEN: ${{ secrets.DEEDLINE_TOKEN }}
+        run: python run.py --out site
+
+      # 2. Keep the output, so next week can tell what's new.
+      - name: Commit
+        run: |
+          git config user.name  "noteline"
+          git config user.email "actions@github.com"
+          git add site
+          if git diff --staged --quiet; then
+            echo "nothing changed"
+          else
+            git commit -m "weekly run $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Email the list
+        env:
+          SMTP_USER:     ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO:      ${{ secrets.EMAIL_TO }}
+          SMTP_HOST:     ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:     ${{ secrets.SMTP_PORT }}
+        run: python notify.py site

@@ -1,0 +1,103 @@
+{
+ "generated": "2026-09-25T12:00:00Z",
+ "leads": [
+  {
+   "report": "servicemembers",
+   "case_number": "26 SM 000101",
+   "filed_date": "2026-09-20",
+   "plaintiff": "Needham Bank",
+   "street": "4 Elm St",
+   "city": "Dedham",
+   "county": "Norfolk",
+   "owner": "John Doe",
+   "is_estate": false,
+   "is_reverse_mortgage": false,
+   "first_seen": "2026-09-21"
+  },
+  {
+   "report": "servicemembers",
+   "case_number": "26 SM 000102",
+   "filed_date": "2026-07-02",
+   "plaintiff": "Needham Bank",
+   "street": "9 Oak Rd",
+   "city": "Needham",
+   "county": "Norfolk",
+   "owner": "Jane Roe",
+   "is_estate": true,
+   "is_reverse_mortgage": false,
+   "first_seen": "2026-07-03"
+  },
+  {
+   "report": "servicemembers",
+   "case_number": "26 SM 000103",
+   "filed_date": "2026-09-10",
+   "plaintiff": "Jeanne D'Arc Credit Union",
+   "street": "12 Mill St",
+   "city": "Lowell",
+   "county": "Middlesex",
+   "owner": "A Person",
+   "is_estate": false,
+   "is_reverse_mortgage": false,
+   "first_seen": "2026-09-11"
+  },
+  {
+   "report": "servicemembers",
+   "case_number": "26 SM 000104",
+   "filed_date": "2026-09-01",
+   "plaintiff": "PennyMac Loan Services, LLC",
+   "street": "1 Main St",
+   "city": "Worcester",
+   "county": "Worcester",
+   "owner": "B Person",
+   "is_estate": false,
+   "is_reverse_mortgage": false,
+   "first_seen": "2026-09-02"
+  },
+  {
+   "report": "servicemembers",
+   "case_number": "26 SM 000105",
+   "filed_date": "2026-08-15",
+   "plaintiff": "U.S. Bank Trust National Association, not in its individual capacity but solely as owner trustee for RCF 2 Acquisition Trust",
+   "street": "7 Pine St",
+   "city": "Brockton",
+   "county": "Plymouth",
+   "owner": "C Person",
+   "is_estate": false,
+   "is_reverse_mortgage": false,
+   "first_seen": "2026-08-16"
+  },
+  {
+   "report": "servicemembers",
+   "case_number": "26 SM 000106",
+   "filed_date": "2026-09-18",
+   "plaintiff": "Robert Smith",
+   "street": "55 Shore Dr",
+   "city": "Hull",
+   "county": "Plymouth",
+   "owner": "D Person",
+   "is_estate": false,
+   "is_reverse_mortgage": false,
+   "first_seen": "2026-09-19"
+  },
+  {
+   "report": "servicemembers",
+   "case_number": "26 SM 000107",
+   "filed_date": "2026-09-05",
+   "plaintiff": "Citizens Bank, N.A. f/k/a RBS Citizens, N.A.",
+   "street": "3 Bay St",
+   "city": "Quincy",
+   "county": "Norfolk",
+   "owner": "E Person",
+   "is_estate": false,
+   "is_reverse_mortgage": false,
+   "first_seen": "2026-09-06"
+  },
+  {
+   "report": "taxlien",
+   "case_number": "26 TL 000001",
+   "plaintiff": "Town of Hull",
+   "street": "x",
+   "city": "Hull"
+  }
+ ]
+}

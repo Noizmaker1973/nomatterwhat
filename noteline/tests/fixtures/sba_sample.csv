@@ -1,0 +1,7 @@
+BorrName,BorrCity,BorrState,BankName,BankState,GrossApproval,ApprovalDate,LoanStatus,ChargeOffDate,GrossChargeOffAmount,NaicsDescription
+Acme Machine LLC,Worcester,MA,Needham Bank,MA,350000,03/15/2022,CHGOFF,06/30/2026,210000,Machine Shops
+Harbor Diner Inc,Salem,MA,Needham Bank,MA,150000,01/10/2021,CHGOFF,02/01/2026,90000,Full-Service Restaurants
+Granite Auto,Keene,NH,Needham Bank,MA,500000,05/05/2023,CHGOFF,08/12/2025,300000,Auto Repair
+Old Loan Co,Austin,TX,Needham Bank,MA,100000,01/01/2015,CHGOFF,01/01/2018,50000,Retail
+Fine Co,Boston,MA,Needham Bank,MA,200000,01/01/2024,EXEMPT,,0,Retail
+Paid Co,Boston,MA,Eastern Bank,MA,80000,01/01/2016,PIF,,0,Retail

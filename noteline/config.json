@@ -1,0 +1,12 @@
+{
+  "states": ["MA", "NH", "RI", "CT", "ME", "VT"],
+  "foreclosure_state": "MA",
+  "deedline_source": "Noizmaker1973/deedline",
+  "foreclosure_window_days": 365,
+  "lender_overrides": {},
+  "sba": {
+    "enabled": false,
+    "csv_urls": [],
+    "recent_days": 730
+  }
+}
