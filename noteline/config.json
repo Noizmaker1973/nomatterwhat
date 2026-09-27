@@ -1,5 +1,12 @@
 {
-  "states": ["MA", "NH", "RI", "CT", "ME", "VT"],
+  "states": [
+    "MA",
+    "NH",
+    "RI",
+    "CT",
+    "ME",
+    "VT"
+  ],
   "foreclosure_state": "MA",
   "deedline_source": "Noizmaker1973/deedline",
   "foreclosure_window_days": 365,
@@ -8,5 +15,25 @@
     "enabled": false,
     "csv_urls": [],
     "recent_days": 730
+  },
+  "ncua": {
+    "enabled": true
+  },
+  "buyer": {
+    "name": "",
+    "company": "",
+    "phone": "",
+    "email": "",
+    "markets": "Massachusetts and New England",
+    "close_days": 30
+  },
+  "bid": {
+    "lookup_values": true,
+    "max_lookups": 300,
+    "target_annual_return": 0.2,
+    "assessed_to_market": 1.0,
+    "legal_costs": 7500,
+    "months_after_servicemembers": 9,
+    "estate_extra_months": 6
   }
 }

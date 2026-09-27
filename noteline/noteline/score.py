@@ -13,9 +13,10 @@ that; only the bank's special assets officer does.
 
 from __future__ import annotations
 
-from .lenders import BankIndex
+from .lenders import BankIndex, classify, norm
 
 FDIC_PAGE = "https://banks.data.fdic.gov/bankfind-suite/bankfind/details/{cert}"
+NCUA_PAGE = "https://mapping.ncua.gov/ResearchCreditUnion.aspx?cu={n}"
 FOCUS_GROUPS = {"residential": ("residential",),
                 "cre": ("cre", "multifamily", "construction"),
                 "business": ("business",)}
@@ -66,9 +67,13 @@ def score_bank(m: dict, prior: dict | None, add) -> None:
 
 
 def build(institutions: list[dict], metrics: dict[int, dict], fc_groups: dict[str, dict],
-          sba: dict | None, cfg: dict) -> dict:
+          sba: dict | None, cfg: dict, credit_unions: dict[int, dict] | None = None,
+          cu_metrics: dict[int, dict] | None = None, proven: dict[str, dict] | None = None) -> dict:
     states = set(cfg.get("states") or [])
     index = BankIndex(institutions)
+    credit_unions, cu_metrics = credit_unions or {}, cu_metrics or {}
+    cu_index = BankIndex([{"CERT": n, "NAME": c["name"], "STALP": c["state"],
+                           "ASSET": c.get("assets") or 0} for n, c in credit_unions.items()])
     by_cert = {int(i["CERT"]): i for i in institutions if i.get("CERT")}
     lenders: dict[str, dict] = {}
     buyers: list[dict] = []
@@ -91,6 +96,37 @@ def build(institutions: list[dict], metrics: dict[int, dict], fc_groups: dict[st
             r = rec_for_bank(inst)
             r["bank"], r["prior"] = mm["latest"], mm["prior"]
 
+    def rec_for_cu(n: int) -> dict:
+        rid = f"ncua:{n}"
+        if rid not in lenders:
+            c = credit_unions[n]
+            lenders[rid] = {"id": rid, "name": c["name"].title(), "kind": "portfolio",
+                            "city": c["city"].title(), "state": c["state"], "cert": None,
+                            "cu_number": n, "web": "", "fdic_url": NCUA_PAGE.format(n=n),
+                            "bank": None, "prior": None, "foreclosures": None, "sba": None}
+            mm = cu_metrics.get(n)
+            if mm:
+                lenders[rid]["bank"], lenders[rid]["prior"] = mm["latest"], mm["prior"]
+        return lenders[rid]
+
+    # 1b. Every credit union in the covered states.
+    for n in credit_unions:
+        if n in cu_metrics:
+            rec_for_cu(n)
+
+    def match_lender(name: str, state: str | None) -> dict | None:
+        if "credit union" in name.lower():
+            hit = cu_index.match(name, state)
+            return rec_for_cu(int(hit["CERT"])) if hit else None
+        inst = index.match(name, state)
+        if not inst:
+            return None
+        r = rec_for_bank(inst)
+        mm = metrics.get(int(inst["CERT"]))
+        if mm and r["bank"] is None:
+            r["bank"], r["prior"] = mm["latest"], mm["prior"]
+        return r
+
     # 2. Foreclosing lenders from Deedline.
     fc_state = cfg.get("foreclosure_state", "MA")
     for key, g in fc_groups.items():
@@ -98,13 +134,8 @@ def build(institutions: list[dict], metrics: dict[int, dict], fc_groups: dict[st
         if g["kind"] == "npl_buyer":
             buyers.append({"name": g["name"], **fc})
             continue
-        inst = index.match(g["name"], fc_state) if g["kind"] == "portfolio" else None
-        if inst:
-            r = rec_for_bank(inst)
-            mm = metrics.get(int(inst["CERT"]))
-            if mm and r["bank"] is None:
-                r["bank"], r["prior"] = mm["latest"], mm["prior"]
-        else:
+        r = match_lender(g["name"], fc_state) if g["kind"] == "portfolio" else None
+        if not r:
             rid = f"name:{key}"
             r = lenders.setdefault(rid, {"id": rid, "name": g["name"], "kind": g["kind"],
                                          "city": "", "state": fc_state, "cert": None, "web": "",
@@ -129,7 +160,23 @@ def build(institutions: list[dict], metrics: dict[int, dict], fc_groups: dict[st
                                           "recent_chargeoff_amt")}
             r["sba"]["loans_list"] = [x for x in sba["recent"] if x["lender"] == name][:25]
 
-    # 4. Score.
+    # 4. Proven sellers — attach to the lender they name, adding it if new.
+    for key, sold in (proven or {}).items():
+        kind = classify(sold["name"])
+        r = match_lender(sold["name"], fc_state) if kind == "portfolio" else None
+        if not r:
+            r = next((x for x in lenders.values() if norm(x["name"]) == key), None)
+        if not r:
+            rid = f"name:{key}"
+            r = lenders.setdefault(rid, {"id": rid, "name": sold["name"], "kind": kind,
+                                         "city": "", "state": fc_state, "cert": None, "web": "",
+                                         "fdic_url": "", "bank": None, "prior": None,
+                                         "foreclosures": None, "sba": None})
+        r["sold"] = {**{k: sold[k] for k in ("sales", "strength", "buyers", "last_date",
+                                             "recent", "types")},
+                     "evidence": sold["evidence"][:25], "key": key}
+
+    # 5. Score.
     out = []
     for r in lenders.values():
         s, why = 0, []
@@ -167,8 +214,8 @@ def build(institutions: list[dict], metrics: dict[int, dict], fc_groups: dict[st
                     add(6, f"{fc['last_30']} filed in the last 30 days")
                 if r["kind"] == "private":
                     add(22, "private lender — often the most willing note seller")
-                elif not r["cert"] and "credit union" in r["name"].lower():
-                    add(14, "credit union — holds its loans in portfolio")
+                elif "credit union" in r["name"].lower():
+                    add(6 if m else 14, "credit union — holds its loans in portfolio")
                 if r["kind"] == "portfolio":
                     why.append("may be servicing some of these for Fannie/Freddie — ask")
                 if "residential" not in r["hot_segments"]:
@@ -187,11 +234,26 @@ def build(institutions: list[dict], metrics: dict[int, dict], fc_groups: dict[st
             if sb["recent_chargeoffs"] and "business" not in r["hot_segments"]:
                 r["hot_segments"].append("business")
 
+        sold = r.get("sold")
+        if sold and r["kind"] in ("portfolio", "private"):
+            proof = {"assignment": "recorded assignment", "refiled": "note changed hands mid-foreclosure",
+                     "caption": "court caption"}[sold["types"][0]]
+            to = f" to {sold['buyers'][0][0]}" if sold["buyers"] else ""
+            when = f" ({sold['last_date']})" if sold["last_date"] else ""
+            if sold["recent"] or not sold["last_date"]:
+                add(20 if "assignment" in sold["types"] else 14,
+                    f"proven seller — sold{to}{when}, per {proof}")
+            else:
+                add(8, f"sold notes before{to}{when}, per {proof} — over 3 years ago")
+            if sold["sales"] >= 3:
+                add(6, f"{sold['sales']} sales on record")
+
         if r["kind"] in ("servicer", "agency"):
             s = min(s, 20)
         r["score"] = max(0, min(100, s))
         r["why"] = why
         r["tier"] = ("call" if r["score"] >= 55 else "watch" if r["score"] >= 35 else "background")
+        r.setdefault("sold", None)
         out.append(r)
 
     out.sort(key=lambda r: (-r["score"], r["name"]))

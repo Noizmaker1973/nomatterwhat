@@ -46,6 +46,8 @@ def line(l: dict) -> str:
         bits.append(f"{b['nc_ratio']:.2f}% noncurrent")
     if fc.get("count"):
         bits.append(f"{fc['count']} MA foreclosures")
+    if l.get("sold"):
+        bits.append("has sold notes before")
     return ", ".join(bits)
 
 
@@ -77,11 +79,14 @@ def build_message(payload: dict, out: Path) -> EmailMessage:
     subject = (f"NoteLine {day}: {len(new)} new, {n_call} worth a call" if new
                else f"NoteLine {day}: {n_call} lender{'s' if n_call != 1 else ''} worth a call")
     status = [f"{k}: {v}" for k, v in payload.get("sources", {}).items()]
+    proven = [l for l in ls if l.get("sold") and l["tier"] != "background"]
 
     text = [subject, "", "The attached dashboard has every lender, the loan types, "
             "the foreclosure addresses and SBA charge-offs.", "", *status, ""]
     if new:
         text += [f"NEW TO THE LIST ({len(new)})", text_rows(new), ""]
+    if proven:
+        text += [f"PROVEN SELLERS ON THE LIST ({len(proven)})", text_rows(proven[:10]), ""]
     if top:
         text += ["TOP OF THE LIST", text_rows(top), ""]
     text += ["", *NOTES]
@@ -92,6 +97,8 @@ def build_message(payload: dict, out: Path) -> EmailMessage:
             "<p style='color:#555;font-size:13px'>" + "<br>".join(map(escape, status)) + "</p>"]
     if new:
         html.append(f"<h3>New to the list ({len(new)})</h3>{html_table(new)}")
+    if proven:
+        html.append(f"<h3>Proven sellers on the list ({len(proven)})</h3>{html_table(proven[:10])}")
     if top:
         html.append(f"<h3>Top of the list</h3>{html_table(top)}")
     html.append("<p style='color:#777;font-size:12px;margin-top:24px'>" +

@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from noteline import foreclosures, sba as sba_mod, score  # noqa: E402
+from noteline import bid, brief, foreclosures, ncua, sellers, sba as sba_mod, score  # noqa: E402
 from noteline.fdic import FDIC, bank_metrics              # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -37,7 +37,7 @@ HERE = Path(__file__).resolve().parent
 CSV_COLS = ["score", "tier", "name", "kind", "city", "state", "assets_musd", "nc_ratio",
             "nc_ratio_year_ago", "noncurrent_musd", "texas_ratio", "leverage", "roa",
             "hot_segments", "ma_foreclosures_12mo", "ma_foreclosures_30d",
-            "sba_chargeoffs_2y", "why", "web", "fdic_url"]
+            "sba_chargeoffs_2y", "proven_seller_sales", "why", "web", "fdic_url"]
 
 
 def load_json(p: Path, default=None):
@@ -67,6 +67,11 @@ def fetch_fdic(cfg: dict, cache: Path | None, extra_names: list[str]) -> tuple[l
     return insts, api.financials(sorted(certs))
 
 
+def _no_network(url, *a, **k):
+    from noteline.http import FetchError
+    raise FetchError(url, 404, "offline")
+
+
 def write_csv(path: Path, lenders: list[dict]) -> None:
     def musd(v):
         return round(v / 1000, 2) if v is not None else ""
@@ -82,6 +87,7 @@ def write_csv(path: Path, lenders: list[dict]) -> None:
                         b.get("leverage", ""), b.get("roa", ""),
                         " ".join(l.get("hot_segments", [])), fc.get("count", ""),
                         fc.get("last_30", ""), sb.get("recent_chargeoffs", ""),
+                        (l.get("sold") or {}).get("sales", ""),
                         "; ".join(l["why"]), l.get("web", ""), l.get("fdic_url", "")])
 
 
@@ -98,6 +104,11 @@ def main(argv=None) -> int:
     ap.add_argument("--fdic-cache", help="offline: JSON with institutions + financials")
     ap.add_argument("--deedline", help="path to Deedline leads.json (overrides config)")
     ap.add_argument("--sba", action="append", help="SBA FOIA CSV path/URL (overrides config)")
+    ap.add_argument("--assignments", default=str(HERE / "data" / "assignments"),
+                    help="folder of Registry assignment exports")
+    ap.add_argument("--ncua-cache", help="folder holding (or to hold) NCUA quarterly ZIPs")
+    ap.add_argument("--offline", action="store_true",
+                    help="no network except what caches already hold")
     a = ap.parse_args(argv)
 
     cfg = json.loads(Path(a.config).read_text())
@@ -119,12 +130,40 @@ def main(argv=None) -> int:
         sources["deedline"] = f"failed: {e}"
     groups = foreclosures.by_lender(history, cfg.get("foreclosure_window_days", 365),
                                     overrides=cfg.get("lender_overrides"))
+    try:
+        dl_history = foreclosures.load_deedline(a.deedline or cfg.get("deedline_source"),
+                                                "history.json")
+    except Exception:  # noqa: BLE001 — only sharpens timelines
+        dl_history = None
 
     insts, fin = fetch_fdic(cfg, Path(a.fdic_cache) if a.fdic_cache else None,
                             [g["name"] for g in groups.values()])
     metrics = bank_metrics(fin)
     latest_q = max((m["latest"]["repdte"] for m in metrics.values()), default="")
     sources["fdic"] = f"ok — {len(metrics)} banks, call reports through {latest_q}"
+
+    # Credit unions.
+    cus, cu_metrics = {}, {}
+    ncua_cfg = cfg.get("ncua") or {}
+    if ncua_cfg.get("enabled", True):
+        try:
+            cache = Path(a.ncua_cache) if a.ncua_cache else None
+            getter = _no_network if a.offline else ncua.get
+            cus, cu_metrics, cu_q = ncua.load(set(cfg.get("states") or []) or None, cache, getter)
+            sources["ncua"] = f"ok — {len(cus)} credit unions, quarter ending {cu_q}"
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            sources["ncua"] = f"failed: {e}"
+    else:
+        sources["ncua"] = "off"
+
+    # Proven sellers.
+    captions = sorted({c["lender"] for c in history.get("cases", {}).values() if c.get("lender")})
+    records = sellers.load_assignment_dir(Path(a.assignments))
+    proof = sellers.build(history, captions, records, cfg.get("lender_overrides"))
+    sources["sellers"] = (f"ok — {len(proof['sellers'])} proven sellers from "
+                          f"{len(records)} assignment records and "
+                          f"{sum(1 for e in proof['evidence'] if e['type'] == 'refiled')} refilings")
 
     sba_data = None
     sba_cfg = cfg.get("sba") or {}
@@ -141,14 +180,59 @@ def main(argv=None) -> int:
     else:
         sources["sba"] = "off (see SETUP.md to add business loans)"
 
-    result = score.build(insts, metrics, groups, sba_data, cfg)
+    result = score.build(insts, metrics, groups, sba_data, cfg, cus, cu_metrics, proof["sellers"])
     previous = load_json(out / "lenders.json")
     score.mark_changes(result["lenders"], previous)
+
+    # Bid estimates on the loans lenders are foreclosing on now.
+    bid_cfg = cfg.get("bid") or {}
+    parcels = bid.Parcels(out / "values.json", max_lookups=bid_cfg.get("max_lookups", 300))
+    if a.offline or not bid_cfg.get("lookup_values", True):
+        parcels.dead = True
+        parcels.status = "offline — cached values only"
+    tl = bid.timelines(history, dl_history)
+    takings = history.get("tax_takings", {})
+    priced = 0
+    for l in result["lenders"]:
+        if l["kind"] not in ("portfolio", "private") or not l.get("foreclosures"):
+            continue
+        for f in l["foreclosures"]["filings"][:30]:
+            parcel = parcels.value(f.get("street", ""), f.get("city", ""))
+            f["bid"] = bid.estimate(f, parcel, tl, bid_cfg,
+                                    tax_taking=foreclosures.addr_key(f.get("street", ""),
+                                                                     f.get("city", "")) in takings)
+            priced += bool(f["bid"].get("bid"))
+    parcels.save()
+    sources["values"] = f"{parcels.status}; {priced} notes priced"
+
+    # Call briefs for everyone worth calling.
+    for l in result["lenders"]:
+        if l["kind"] in ("portfolio", "private") and (
+                l["tier"] != "background" or l.get("foreclosures") or l.get("sold")):
+            l["brief"] = brief.build(l, cfg.get("buyer") or {}, cfg.get("states") or [])
+
+    candidates = [l for l in result["lenders"] if l["kind"] in ("portfolio", "private")
+                  and l["tier"] != "background"]
+    result["search_plan"] = sellers.search_plan(result["buyers"], candidates, proof["sellers"])
+    result["proven_sellers"] = sorted(
+        ({"name": v["name"], "key": k, **{x: v[x] for x in ("sales", "strength", "last_date",
+                                                           "recent", "types", "buyers")},
+          "evidence": v["evidence"][:10],
+          "lender_id": next((l["id"] for l in result["lenders"]
+                             if (l.get("sold") or {}).get("key") == k), None)}
+         for k, v in proof["sellers"].items()),
+        key=lambda x: (-x["strength"], x["name"]))
+    by_id = {l["id"]: l for l in result["lenders"]}
+    for ps in result["proven_sellers"]:
+        if ps["lender_id"] in by_id:
+            ps["name"] = by_id[ps["lender_id"]]["name"]   # not the registry's ALL CAPS
+    result["timelines"] = tl
 
     payload = {
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "states": cfg.get("states"),
         "call_report_quarter": latest_q,
+        "bid_defaults": {**bid.DEFAULTS, **bid_cfg},
         "sources": sources,
         **result,
     }

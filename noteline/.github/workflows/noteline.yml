@@ -43,6 +43,8 @@ jobs:
             echo "nothing changed"
           else
             git commit -m "weekly run $(date -u +%Y-%m-%d)"
+            # The tracker may have saved a Registry paste while this ran.
+            git pull --rebase origin main
             git push
           fi
 

@@ -138,6 +138,25 @@ a{color:var(--blue)}
 .segtbl td.n{font-family:'IBM Plex Mono',monospace;text-align:right}
 .spark{display:block;margin-top:4px}
 
+.t-sold{background:var(--ledger);color:var(--paper);border-color:var(--ledger)}
+.bidline{display:block;margin-top:4px;font-size:12.5px}
+.bidline b{font-family:'IBM Plex Mono',monospace}
+.muted{color:var(--faint)}
+details.calc,details.letter{margin-top:6px}
+details summary{cursor:pointer;font-size:12px;color:var(--blue);width:max-content}
+.calcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:8px 0}
+.calcgrid label{font-size:11.5px;color:var(--faint);display:flex;flex-direction:column;gap:2px}
+.calcgrid input,.trk input,.trk select,.trk textarea,#asg,#asg-label{padding:5px 7px;border:1px solid var(--rule);border-radius:var(--r);background:var(--raise);font-size:13px;min-width:0}
+.calcout{font-size:13px;margin:4px 0;color:var(--ink)}
+pre#letter{white-space:pre-wrap;font-family:inherit;font-size:13px;background:var(--raise);border:1px solid var(--rule);padding:10px 12px;border-radius:var(--r);margin:8px 0}
+.trkrow{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:6px 0}
+.trkrow label{font-size:11.5px;color:var(--faint);display:flex;flex-direction:column;gap:2px}
+.trkrow label.chk{flex-direction:row;align-items:center;gap:5px;color:var(--ink);font-size:12.5px}
+.trk textarea,#asg{width:100%;font-family:inherit;margin:6px 0}
+.cardbtn{display:block;width:100%;text-align:left;cursor:pointer}
+.cardbtn:hover{border-color:var(--blue)}
+.copy{border:1px solid var(--rule);border-radius:var(--r);padding:0 6px;font-size:11px;color:var(--muted)}
+.hot{color:var(--stamp);font-weight:600}
 .panel{padding:18px 16px 50px;max-width:820px}
 .panel h2{margin:0 0 5px;font-size:21px;font-weight:700;letter-spacing:-.035em}
 .panel>p{margin:0 0 16px;color:var(--muted);font-size:13.5px;max-width:66ch}
@@ -157,7 +176,9 @@ a{color:var(--blue)}
     <button class="tab" role="tab" data-view="lenders" aria-selected="true">Lenders</button>
     <button class="tab" role="tab" data-view="foreclosing">Foreclosing now</button>
     <button class="tab" role="tab" data-view="business">Business loans</button>
+    <button class="tab" role="tab" data-view="sellers">Proven sellers</button>
     <button class="tab" role="tab" data-view="buyers">Who's buying</button>
+    <button class="tab" role="tab" data-view="pipeline" id="tab-pipeline" hidden>Your pipeline</button>
     <button class="tab" role="tab" data-view="about">How to read it</button>
   </nav>
   <button class="topbtn" id="theme" aria-label="Toggle dark mode">◐</button>
@@ -199,6 +220,13 @@ if (!DATA) {
 }
 
 const L = DATA.lenders;
+// Inside the Google Apps Script web app the tracker is live; as an email
+// attachment the dashboard is read-only.
+const LIVE = typeof google !== "undefined" && google.script && google.script.run;
+const TRACK = {lenders: {}, contacts: {}, notes: {}};
+function call(fn, ...args) {
+  return new Promise((ok, fail) => google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[fn](...args));
+}
 const state = {view:"lenders", seg:"all", tier:"active", st:"all", q:""};
 const gen = new Date(DATA.generated);
 $("#slug").innerHTML = `Built <b>${gen.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}</b> · call reports through <b>${qtr(DATA.call_report_quarter)}</b> · ${esc((DATA.states||[]).join(", "))}`;
@@ -227,6 +255,9 @@ function rowHTML(l) {
   const b = l.bank || {}, fc = l.foreclosures, tags = [];
   if (l.tier !== "background") tags.push(`<span class="tag t-${l.tier}">${l.tier === "call" ? "worth a call" : "watch"}</span>`);
   (l.hot_segments||[]).forEach(s => tags.push(`<span class="tag t-seg">${SEG[s]||s}</span>`));
+  if (l.sold) tags.push(`<span class="tag t-sold">sold notes before</span>`);
+  const tr = TRACK.lenders[l.id];
+  if (tr && tr.status) tags.push(`<span class="tag t-q">${esc(tr.status)}</span>`);
   if (fc && ["portfolio","private"].includes(l.kind)) tags.push(`<span class="tag t-fc">${fc.count} foreclosure${fc.count===1?"":"s"}</span>`);
   if (l.kind !== "portfolio") tags.push(`<span class="tag t-q">${KIND[l.kind]}</span>`);
   const loc = [l.city, l.state].filter(Boolean).join(", ");
@@ -270,23 +301,28 @@ function drawRows() {
 
 function openLender(id) {
   const l = L.find(x => x.id === id); if (!l) return;
+  state.open = id;
   const b = l.bank, p = l.prior || {};
   $("#dname").textContent = l.name;
   $("#dsub").textContent = [KIND[l.kind], [l.city, l.state].filter(Boolean).join(", "), `score ${l.score}`].filter(Boolean).join(" · ");
   let h = `<div class="dsec"><h4>Why it scored</h4><ul class="why">${l.why.map(w=>`<li>${esc(w)}</li>`).join("") || "<li>No signals.</li>"}</ul></div>`;
+  if (l.sold) h += soldHTML(l.sold);
+  if (l.brief) h += briefHTML(l);
+  if (LIVE) h += trackerHTML(l);
   if (b) {
     const d = (b.nc_ratio != null && p.nc_ratio != null) ? b.nc_ratio - p.nc_ratio : null;
-    h += `<div class="dsec"><h4>Call report — ${qtr(b.repdte)}</h4><dl class="kv">
+    const cu = !!b.basis;
+    h += `<div class="dsec"><h4>${cu ? "NCUA call report" : "Call report"} — ${qtr(b.repdte)}</h4><dl class="kv">
       <div><dt>Total assets</dt><dd>${musd(b.assets)}</dd></div>
       <div><dt>Loans</dt><dd>${musd(b.loans)}</dd></div>
-      <div><dt>Noncurrent loans</dt><dd class="${(b.nc_ratio||0)>=1.5?"bad":""}">${musd(b.noncurrent)} · ${pct(b.nc_ratio)}</dd></div>
+      <div><dt>${cu ? "60+ days delinquent" : "Noncurrent loans"}</dt><dd class="${(b.nc_ratio||0)>=1.5?"bad":""}">${musd(b.noncurrent)} · ${pct(b.nc_ratio)}</dd></div>
       <div><dt>A year earlier</dt><dd>${pct(p.nc_ratio)}${d!=null?` (${d>=0?"+":""}${d.toFixed(2)})`:""}</dd></div>
-      <div><dt>30–89 days late</dt><dd>${pct(b.early_ratio)}</dd></div>
+      ${cu ? "" : `<div><dt>30–89 days late</dt><dd>${pct(b.early_ratio)}</dd></div>`}
       <div><dt>Foreclosed property (OREO)</dt><dd>${musd(b.oreo)}</dd></div>
       <div><dt>Texas ratio</dt><dd class="${(b.texas_ratio||0)>=50?"bad":""}">${b.texas_ratio==null?"—":Math.round(b.texas_ratio)+"%"}</dd></div>
-      <div><dt>Leverage ratio</dt><dd class="${(b.leverage||99)<7?"bad":""}">${pct(b.leverage)}</dd></div>
+      <div><dt>${cu ? "Net worth ratio" : "Leverage ratio"}</dt><dd class="${(b.leverage||99)<7?"bad":""}">${pct(b.leverage)}</dd></div>
       <div><dt>Return on assets</dt><dd class="${(b.roa||0)<0?"bad":""}">${pct(b.roa)}</dd></div>
-    </dl>${spark(b.history)}</div>`;
+    </dl>${spark(b.history)}${cu ? `<p class="sub" style="margin-top:6px">Credit unions report loans 60+ days late; banks report 90+. Ratios run a little higher here.</p>` : ""}</div>`;
     const f = l.focus || {};
     if (Object.keys(f).length) h += `<div class="dsec"><h4>Where the bad loans are</h4><table class="segtbl"><tr><th>Loan type</th><th style="text-align:right">Balance</th><th style="text-align:right">Noncurrent</th><th style="text-align:right">Rate</th></tr>
       ${Object.entries(f).map(([k,v]) => `<tr><td>${SEG[k]}</td><td class="n">${musd(v.balance)}</td><td class="n">${musd(v.noncurrent)}</td><td class="n">${pct(v.nc_ratio)}</td></tr>`).join("")}</table></div>`;
@@ -294,8 +330,8 @@ function openLender(id) {
   const fc = l.foreclosures;
   if (fc && fc.filings.length) {
     h += `<div class="dsec"><h4>Massachusetts foreclosure filings (${fc.count})</h4>
-      <p class="cite" style="margin-bottom:9px">Each is a specific non-performing note this lender holds or services. Name them when you call.</p>
-      ${fc.filings.slice(0,30).map(x => `<div class="item"><b>${esc(x.street)}, ${esc(x.city)}</b>${(l.new_filings||[]).includes(x.case_number)?' <span class="tag t-call">new</span>':""}<s>${esc(x.case_number)} · filed ${esc(x.filed_date||"?")} · ${esc(x.county)} County${x.is_estate?" · estate":""}${x.is_reverse_mortgage?" · reverse mortgage":""}</s></div>`).join("")}
+      <p class="cite" style="margin-bottom:9px">Each is a specific non-performing note this lender holds or services. Name them when you call. Bids assume the assessed value and a measured Massachusetts timeline; open the calculator to use your own numbers.</p>
+      ${fc.filings.slice(0,30).map((x,i) => filingHTML(l, x, i)).join("")}
       ${fc.count > 30 ? `<p class="sub">…and ${fc.count-30} more in lenders.json.</p>` : ""}</div>`;
   }
   const sb = l.sba;
@@ -308,19 +344,202 @@ function openLender(id) {
   }
   const links = [];
   if (l.web) links.push(`<a class="lnk" target="_blank" rel="noopener" href="${esc(/^https?:/.test(l.web)?l.web:"https://"+l.web)}">Website</a>`);
-  if (l.fdic_url) links.push(`<a class="lnk" target="_blank" rel="noopener" href="${esc(l.fdic_url)}">FDIC BankFind</a>`);
+  if (l.fdic_url) links.push(`<a class="lnk" target="_blank" rel="noopener" href="${esc(l.fdic_url)}">${l.cu_number ? "NCUA profile" : "FDIC BankFind"}</a>`);
   links.push(`<a class="lnk" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent(l.name + ' special assets officer')}">Find the special assets officer</a>`);
   links.push(`<a class="lnk" target="_blank" rel="noopener" href="https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(l.name + ' special assets')}">LinkedIn</a>`);
-  h += `<div class="dsec"><h4>Reach them</h4><div class="links">${links.join("")}</div>
-    <p class="cite" style="margin-top:10px">Ask for the special assets or loan workout department, not a loan officer. Ask whether they sell individual notes or small pools, and whether they will take a bid on a named loan.</p></div>`;
+  h += `<div class="dsec"><h4>Reach them</h4><div class="links">${links.join("")}</div></div>`;
   $("#dbody").innerHTML = h;
+  wireDrawer(l);
   $("#dbody").scrollTop = 0;
   $("#drawer").classList.add("on"); $("#scrim").classList.add("on");
   $("#drawer").setAttribute("aria-hidden","false"); $("#dclose").focus();
 }
+
+/* ---- proven sellers ---- */
+const PROOF = {assignment:"recorded assignment", refiled:"refiled by a new lender", caption:"court caption"};
+function soldHTML(s) {
+  return `<div class="dsec"><h4>Sold notes before <span class="tag t-sold">proven seller</span></h4>
+    <p class="status">${s.sales} sale${s.sales===1?"":"s"} on record${s.last_date?`, most recently ${esc(s.last_date)}`:""}. Bought by ${s.buyers.map(([n,c]) => `${esc(n)}${c>1?` (${c})`:""}`).join(", ")}.</p>
+    ${s.evidence.slice(0,8).map(e => `<div class="item"><b>${esc(e.buyer)}</b>${e.street?` · ${esc(e.street)}, ${esc(e.city)}`:e.city?` · ${esc(e.city)}`:""}<s>${PROOF[e.type]}${e.date?` · ${esc(e.date)}`:""}${e.detail?` · ${esc(e.detail)}`:""}</s></div>`).join("")}</div>`;
+}
+
+/* ---- call brief ---- */
+function briefHTML(l) {
+  const br = l.brief, t = (TRACK.lenders[l.id]||{});
+  const letter = t.letter || br.letter;
+  return `<div class="dsec"><h4>Call brief</h4>
+    ${br.points.length ? `<ul class="why">${br.points.map(p=>`<li>${esc(p)}</li>`).join("")}</ul>` : ""}
+    <p class="status" style="margin-top:10px"><b>The ask:</b> ${esc(br.ask)}</p>
+    <details class="letter"><summary>Letter to special assets${t.letter?" (Claude's draft)":""}</summary>
+      <pre id="letter">${esc(letter)}</pre>
+      <div class="links"><button class="lnk" data-copy="letter">Copy letter</button>
+      ${LIVE ? `<button class="lnk" id="redraft">${t.letter?"Redraft":"Rewrite"} with Claude</button>` : ""}</div>
+    </details></div>`;
+}
+
+/* ---- bid per note ---- */
+const BD = DATA.bid_defaults || {};
+function price(v, months, rate) {
+  const holding = months * (v * BD.tax_insurance_pct_per_year / 12 + BD.servicing_monthly);
+  const costs = v * (BD.resale_cost_pct + BD.repair_reserve_pct) + BD.legal_costs + holding;
+  const net = v - costs;
+  return {net, costs, bid: Math.max(0, Math.round(net / Math.pow(1 + rate, months / 12) / 500) * 500)};
+}
+function filingHTML(l, x, i) {
+  const bd = x.bid || {};
+  let line = "";
+  if (bd.skip) line = `<span class="bidline muted">${esc(bd.flags[0])}</span>`;
+  else if (bd.bid != null) line = `<span class="bidline">Bid about <b>${usd(bd.bid)}</b> <span class="muted">(${usd(bd.bid_low)}–${usd(bd.bid_high)}) · ${usd(bd.value)} ${esc(bd.value_source)} · ${bd.months} mo</span></span>`;
+  else if (bd.months) line = `<span class="bidline muted">No assessed value found — ${bd.months} mo timeline; enter a value in the calculator</span>`;
+  return `<div class="item"><b>${esc(x.street)}, ${esc(x.city)}</b>${(l.new_filings||[]).includes(x.case_number)?' <span class="tag t-call">new</span>':""}
+    <s>${esc(x.case_number)} · filed ${esc(x.filed_date||"?")} · ${esc(x.county)} County${x.is_estate?" · estate":""}${x.is_reverse_mortgage?" · reverse mortgage":""}</s>
+    ${line}${bd.skip ? "" : `<details class="calc" data-i="${i}"><summary>Calculator</summary>
+      <div class="calcgrid">
+        <label>Value $<input type="number" step="1000" data-k="v" value="${bd.value||""}"></label>
+        <label>Unpaid balance $<input type="number" step="1000" data-k="upb" placeholder="from seller"></label>
+        <label>Months to resolve<input type="number" step="1" data-k="m" value="${bd.months||""}"></label>
+        <label>Target return %<input type="number" step="1" data-k="r" value="${Math.round((BD.target_annual_return||.2)*100)}"></label>
+      </div><p class="calcout" aria-live="polite"></p>
+      ${(bd.flags||[]).map(f=>`<p class="sub">• ${esc(f)}</p>`).join("")}
+      ${bd.timeline_basis ? `<p class="sub">Timeline: ${esc(bd.timeline_basis)} + ${BD.months_after_servicemembers} mo notice, sale and resale.</p>` : ""}
+    </details>`}</div>`;
+}
+function calc(d) {
+  const g = k => parseFloat(d.querySelector(`[data-k="${k}"]`).value);
+  const v = g("v"), upb = g("upb"), m = g("m"), r = g("r") / 100, out = d.querySelector(".calcout");
+  if (!(v > 0) || !(m > 0) || !(r >= 0)) { out.textContent = "Enter a value and a timeline."; return; }
+  const p = price(v, m, r);
+  let s = `Net at resolution ${usd(p.net)} after ${usd(p.costs)} in costs → bid up to ${usd(p.bid)} (${Math.round(p.bid / v * 100)}% of value).`;
+  if (upb > 0 && p.bid > upb) s += ` Capped at the unpaid balance: ${usd(upb)}.`;
+  else if (upb > 0) s += ` That's ${Math.round(p.bid / upb * 100)}¢ on the dollar of balance.`;
+  out.textContent = s;
+}
+
+function wireDrawer(l) {
+  document.querySelectorAll("#dbody details.calc").forEach(d => {
+    d.addEventListener("toggle", () => d.open && calc(d));
+    d.querySelectorAll("input").forEach(i => i.oninput = () => calc(d));
+  });
+  document.querySelectorAll("#dbody [data-copy]").forEach(bt => bt.onclick = () => {
+    const txt = $("#" + bt.dataset.copy).textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
+      () => { bt.textContent = "Copied"; }, () => { bt.textContent = "Select and copy"; });
+  });
+  if (LIVE) wireTracker(l);
+}
 const closeDrawer = () => { $("#drawer").classList.remove("on"); $("#scrim").classList.remove("on"); $("#drawer").setAttribute("aria-hidden","true"); };
 $("#dclose").onclick = closeDrawer; $("#scrim").onclick = closeDrawer;
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
+/* ---- tracker: status, follow-up, contacts, notes (only inside the Google web app) ---- */
+const STATUSES = ["", "To call", "Called — no answer", "Talking", "Sent letter", "Bidding", "Bought", "Not selling", "Dead"];
+function snapOf(l) { return {name: l.name, city: l.city, state: l.state}; }
+function trackerHTML(l) {
+  const t = TRACK.lenders[l.id] || {}, cs = TRACK.contacts[l.id] || [], ns = TRACK.notes[l.id] || [];
+  return `<div class="dsec trk"><h4>Your tracker</h4>
+    <div class="trkrow">
+      <label>Status <select id="t-status">${STATUSES.map(s=>`<option ${s===(t.status||"")?"selected":""}>${esc(s)}</option>`).join("")}</select></label>
+      <label>Follow up <input type="date" id="t-follow" value="${esc(t.follow_up||"")}"></label>
+      <label class="chk"><input type="checkbox" id="t-cal" ${t.event_id?"checked":""}> Calendar reminder</label>
+      <button class="lnk" id="t-save">Save</button><span class="sub" id="t-msg"></span>
+    </div>
+    <h4 style="margin-top:14px">Contacts</h4>
+    ${cs.map(c => `<div class="item"><b>${esc(c.name)}</b>${c.title?` · ${esc(c.title)}`:""}<s>${[c.phone, c.email].filter(Boolean).map(esc).join(" · ")}${c.note?` · ${esc(c.note)}`:""}</s></div>`).join("") || `<p class="sub">None yet. The person you want is the special assets or workout officer.</p>`}
+    <div class="trkrow">
+      <input id="c-name" placeholder="Name" aria-label="Contact name"><input id="c-title" placeholder="Title" aria-label="Title">
+      <input id="c-phone" placeholder="Phone" aria-label="Phone"><input id="c-email" placeholder="Email" aria-label="Email">
+      <button class="lnk" id="c-add">Add contact</button></div>
+    <h4 style="margin-top:14px">Notes</h4>
+    ${ns.slice().reverse().map(n => `<div class="item">${esc(n.text)}<s>${esc(new Date(n.at).toLocaleString())}</s></div>`).join("")}
+    <textarea id="n-text" rows="2" placeholder="What happened on the call?" aria-label="Note"></textarea>
+    <button class="lnk" id="n-add">Add note</button></div>`;
+}
+function wireTracker(l) {
+  const msg = t => { const m = $("#t-msg"); if (m) m.textContent = t; };
+  $("#t-save").onclick = async () => {
+    msg("Saving…");
+    try { TRACK.lenders[l.id] = {...TRACK.lenders[l.id], ...await call("saveLender", l.id,
+            {status: $("#t-status").value, follow_up: $("#t-follow").value, calendar: $("#t-cal").checked}, snapOf(l))};
+          msg("Saved"); drawRowsIfOpen(); }
+    catch (e) { msg(e.message || "Couldn't save"); }
+  };
+  $("#c-add").onclick = async () => {
+    const c = {name: $("#c-name").value.trim(), title: $("#c-title").value.trim(), phone: $("#c-phone").value.trim(), email: $("#c-email").value.trim()};
+    if (!c.name) return;
+    try { (TRACK.contacts[l.id] = TRACK.contacts[l.id] || []).push(await call("addContact", l.id, c, snapOf(l))); openLender(l.id); }
+    catch (e) { msg(e.message); }
+  };
+  $("#n-add").onclick = async () => {
+    const text = $("#n-text").value.trim(); if (!text) return;
+    try { (TRACK.notes[l.id] = TRACK.notes[l.id] || []).push(await call("addNote", l.id, text, snapOf(l))); openLender(l.id); }
+    catch (e) { msg(e.message); }
+  };
+  const rd = $("#redraft");
+  if (rd) rd.onclick = async () => {
+    rd.textContent = "Writing…"; rd.disabled = true;
+    try {
+      const facts = {lender: l.name, kind: KIND[l.kind], city: l.city, state: l.state, points: l.brief.points,
+                     ask: l.brief.ask, named_loans: l.brief.named_loans, contacts: TRACK.contacts[l.id] || [],
+                     notes: (TRACK.notes[l.id] || []).slice(-5).map(n => n.text), template: l.brief.letter};
+      TRACK.lenders[l.id] = {...TRACK.lenders[l.id], ...await call("draftLetter", l.id, facts, snapOf(l))};
+      openLender(l.id); const d = document.querySelector("#dbody details.letter"); if (d) d.open = true;
+    } catch (e) { rd.textContent = e.message || "Couldn't write it"; rd.disabled = false; }
+  };
+}
+function drawRowsIfOpen() { if (state.view === "lenders" && $("#rows")) drawRows(); }
+
+/* ---- proven sellers tab ---- */
+function sellersView() {
+  const ps = DATA.proven_sellers || [], plan = DATA.search_plan || [];
+  $("#view").innerHTML = `<div class="panel"><h2>Proven sellers</h2>
+    <p>Lenders with a record of actually selling notes: a recorded assignment to a note buyer, a foreclosure refiled by a new owner mid-case, or a court caption naming them as the seller. A bank that has sold before is the best call on the list.</p>
+    ${ps.length ? ps.map(s => `<button class="card cardbtn" data-lender="${esc(s.lender_id||"")}"><span class="n">${s.sales}</span><b>${esc(s.name)}</b>
+      <p>${s.types.map(t => PROOF[t]).join(", ")}${s.last_date?` · latest ${esc(s.last_date)}`:""} · to ${s.buyers.slice(0,3).map(([n])=>esc(n)).join(", ")}</p></button>`).join("")
+      : `<p class="cite">None on record yet. Refilings accumulate on their own each week; assignment records come from the Registry searches below.</p>`}
+  </div>
+  <div class="panel"><h2>Find more at the Registry</h2>
+    <p>At <a href="https://www.masslandrecords.com/" target="_blank" rel="noopener">masslandrecords.com</a>, pick a registry, search <b>Recorded Land → Name</b>, set the document type to <b>Assignment</b>, and search each name below in the role shown. Then ${LIVE ? "copy the results table and paste it into the box at the bottom" : "copy the results table into a spreadsheet and save it as a CSV in the repo's <span class='mono'>data/assignments/</span> folder"}. The next run reads it.</p>
+    ${plan.map((x,i) => `<div class="card"><span class="n">${esc(x.role)}</span><b id="sp${i}">${esc(x.name)}</b> <button class="copy" data-copy="sp${i}">copy</button><p>${esc(x.why)}</p></div>`).join("")}
+    ${LIVE ? `<h2 style="margin-top:22px">Paste results</h2>
+      <p>Paste one registry's results table. Include the header row. It's saved to the repo for the next run.</p>
+      <textarea id="asg" rows="8" placeholder="Rec Date	Book	Page	Type Desc	Town	Name	Party …" aria-label="Registry results"></textarea>
+      <div class="links"><input id="asg-label" placeholder="Which registry / search (optional)" aria-label="Label"><button class="lnk" id="asg-save">Save to NoteLine</button><button class="lnk" id="run-now">Run NoteLine now</button></div>
+      <p class="sub" id="asg-msg"></p>` : ""}
+  </div>`;
+  document.querySelectorAll("#view .cardbtn").forEach(b => b.onclick = () => b.dataset.lender && openLender(b.dataset.lender));
+  document.querySelectorAll("#view [data-copy]").forEach(bt => bt.onclick = () => {
+    const txt = $("#" + bt.dataset.copy).textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => bt.textContent = "copied", () => {});
+  });
+  if (LIVE) {
+    $("#asg-save").onclick = async () => {
+      const text = $("#asg").value; if (!text.trim()) return;
+      $("#asg-msg").textContent = "Saving…";
+      try { const r = await call("addAssignments", text, $("#asg-label").value); $("#asg-msg").textContent = `Saved ${r.lines} lines to ${r.path}. They count from the next run.`; $("#asg").value = ""; }
+      catch (e) { $("#asg-msg").textContent = e.message; }
+    };
+    $("#run-now").onclick = async () => {
+      $("#asg-msg").textContent = "Starting…";
+      try { await call("runNow"); $("#asg-msg").textContent = "Started. The email arrives in a few minutes; reload this page after that."; }
+      catch (e) { $("#asg-msg").textContent = e.message; }
+    };
+  }
+}
+
+/* ---- your pipeline (web app only) ---- */
+function pipelineView() {
+  const ids = [...new Set([...Object.keys(TRACK.lenders), ...Object.keys(TRACK.notes), ...Object.keys(TRACK.contacts)])];
+  const rows = ids.map(id => ({id, t: TRACK.lenders[id] || {}, l: L.find(x => x.id === id)}))
+    .sort((a, b) => (a.t.follow_up || "9999").localeCompare(b.t.follow_up || "9999"));
+  const today = new Date().toISOString().slice(0, 10);
+  $("#view").innerHTML = `<div class="panel"><h2>Your pipeline</h2>
+    <p>Every lender you've touched, soonest follow-up first.</p>
+    ${rows.map(({id, t, l}) => `<button class="card cardbtn" data-lender="${esc(id)}"><span class="n">${esc(t.status||"—")}</span>
+      <b>${esc(l ? l.name : t.name || id)}</b><p>${t.follow_up ? `follow up <span class="${t.follow_up <= today ? "hot" : ""}">${esc(t.follow_up)}</span>` : "no follow-up set"}
+      · ${(TRACK.contacts[id]||[]).length} contact${(TRACK.contacts[id]||[]).length===1?"":"s"} · ${(TRACK.notes[id]||[]).length} note${(TRACK.notes[id]||[]).length===1?"":"s"}${l ? "" : " · no longer on the list"}</p></button>`).join("")
+      || `<p class="cite">Nothing yet. Open any lender and set a status, add a contact or a note.</p>`}</div>`;
+  document.querySelectorAll("#view .cardbtn").forEach(b => b.onclick = () => L.find(x => x.id === b.dataset.lender) && openLender(b.dataset.lender));
+}
 
 function foreclosingView() {
   const list = L.filter(l => l.foreclosures && ["portfolio","private"].includes(l.kind))
@@ -365,16 +584,25 @@ function aboutView() {
       <li><b>Size</b> community banks ($100M–$10B) sell one note or a small pool by phone. Money-center banks sell only large pools at auction.</li>
       <li><b>Foreclosures</b> from Deedline's Land Court feed. A bank or private lender foreclosing in its own name holds that exact note.</li>
       <li><b>SBA</b> charge-offs from the SBA's loan-level FOIA file.</li>
+      <li><b>Proven seller</b> a recorded assignment to a note buyer, a foreclosure refiled by a new owner mid-case, or a caption naming the lender as seller. The strongest signal on the list.</li>
+      <li><b>Credit unions</b> NCUA call reports, which count loans 60+ days late (banks: 90+).</li>
+      <li><b>Bid</b> assessed value, less resale, repair, legal and holding costs over a measured Massachusetts foreclosure timeline, discounted at your target return. Never above the unpaid balance.</li>
     </ul>
     <p class="cite">Before you buy: servicing residential mortgage notes in Massachusetts requires a licensed servicer, and foreclosure-related outreach to homeowners is regulated (940 CMR 25.00). Buy through an entity, use a licensed servicer, and have counsel review the first few purchases.</p></div>`;
 }
 
-const VIEWS = {lenders: lendersView, foreclosing: foreclosingView, business: businessView, buyers: buyersView, about: aboutView};
+const VIEWS = {lenders: lendersView, foreclosing: foreclosingView, business: businessView, sellers: sellersView,
+               buyers: buyersView, pipeline: pipelineView, about: aboutView};
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x === t));
   state.view = t.dataset.view; VIEWS[state.view](); window.scrollTo(0, 0);
 });
 hero(); lendersView();
+if (LIVE) {
+  $("#tab-pipeline").hidden = false;
+  call("getTracker").then(t => { Object.assign(TRACK, t); VIEWS[state.view](); if (state.open) openLender(state.open); })
+    .catch(e => console.error(e));
+}
 </script>
 </body>
 </html>

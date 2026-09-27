@@ -16,27 +16,34 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date
 from pathlib import Path
 
 from .http import get
 from .lenders import buyer_name, classify, clean_name, norm
 
-DEEDLINE_API = "https://api.github.com/repos/{repo}/contents/site/leads.json"
+DEEDLINE_API = "https://api.github.com/repos/{repo}/contents/site/{file}"
 
 
-def load_deedline(source: str | None) -> dict | None:
+def load_deedline(source: str | None, file: str = "leads.json") -> dict | None:
     """
-    Read Deedline's leads.json from a local path, or from its private GitHub
-    repo when DEEDLINE_TOKEN is set. Returns None when neither is available,
-    so NoteLine still runs on bank data alone.
+    Read one of Deedline's site/ files (leads.json, history.json) from a local
+    path, or from its private GitHub repo when DEEDLINE_TOKEN is set. Returns
+    None when neither is available, so NoteLine still runs on bank data alone.
+    A local path may name the file itself or the folder holding it.
     """
     if source and Path(source).exists():
-        return json.loads(Path(source).read_text())
+        p = Path(source)
+        if p.is_dir():
+            p = p / file
+        elif file != "leads.json":
+            p = p.with_name(file)   # a leads.json path: its sibling
+        return json.loads(p.read_text()) if p.exists() else None
     token = os.environ.get("DEEDLINE_TOKEN")
     repo = os.environ.get("DEEDLINE_REPO") or source
     if token and repo and "/" in repo and not Path(repo).suffix:
-        raw = get(DEEDLINE_API.format(repo=repo),
+        raw = get(DEEDLINE_API.format(repo=repo, file=file),
                   headers={"Authorization": f"Bearer {token}",
                            "Accept": "application/vnd.github.raw+json"})
         return json.loads(raw)
@@ -51,7 +58,12 @@ def merge_history(history: dict, deedline: dict | None, today: str | None = None
     """
     today = today or date.today().isoformat()
     cases = history.setdefault("cases", {})
+    takings = history.setdefault("tax_takings", {})
     for lead in (deedline or {}).get("leads", []):
+        if lead.get("report") == "taxlien" and lead.get("street"):
+            takings[addr_key(lead["street"], lead.get("city", ""))] = {
+                "case_number": lead.get("case_number"), "town": lead.get("plaintiff", ""),
+                "filed_date": lead.get("filed_date"), "last_seen": today}
         if lead.get("report") != "servicemembers" or not lead.get("case_number"):
             continue
         lender = lead.get("plaintiff") or lead.get("mover") or ""
@@ -71,6 +83,15 @@ def merge_history(history: dict, deedline: dict | None, today: str | None = None
         }
     history["updated"] = today
     return history
+
+
+def addr_key(street: str, city: str) -> str:
+    s = re.sub(r"[^a-z0-9 ]", " ", (street or "").lower())
+    s = re.sub(r"\b(street|st|road|rd|avenue|ave|drive|dr|lane|ln|court|ct|place|pl|"
+               r"terrace|ter|circle|cir|way|boulevard|blvd|unit|apt)\b", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    c = re.sub(r"[^a-z]", "", (city or "").lower())
+    return f"{s}|{c}" if s and c else ""
 
 
 def by_lender(history: dict, window_days: int = 365, today: date | None = None,
