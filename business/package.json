@@ -1,0 +1,22 @@
+{
+  "name": "one-day-daily",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Automated paid daily recovery-reflection email subscription",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "send-daily": "node src/send-daily.js",
+    "send-daily:dry": "DRY_RUN=1 node src/send-daily.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "express": "^5.3.0",
+    "stripe": "^23.0.0",
+    "zod": "^4.6.6"
+  }
+}

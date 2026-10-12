@@ -1,0 +1,44 @@
+# Render Blueprint: one web service (landing page, checkout, webhooks) and one
+# daily cron job (generate + send). Deploy with "New > Blueprint" on Render and
+# fill in the env vars marked sync: false.
+services:
+  - type: web
+    name: one-day-daily-web
+    runtime: node
+    rootDir: business
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: one-day-daily
+  - type: cron
+    name: one-day-daily-send
+    runtime: node
+    rootDir: business
+    plan: starter
+    schedule: "0 11 * * *" # 11:00 UTC = 7am US Eastern (6am during standard time)
+    buildCommand: npm ci
+    startCommand: npm run send-daily
+    envVars:
+      - fromGroup: one-day-daily
+
+envVarGroups:
+  - name: one-day-daily
+    envVars:
+      - key: BASE_URL
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: LINK_SECRET
+        generateValue: true
