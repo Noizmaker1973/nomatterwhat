@@ -1,0 +1,27 @@
+:root { --bg:#f8fafc; --fg:#0f172a; --muted:#475569; --accent:#1570ef; --accent-fg:#fff; --card:#fff; --line:#e2e8f0; --good:#067647; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b1220; --fg:#e2e8f0; --muted:#94a3b8; --accent:#4c8dff; --card:#121a2b; --line:#24324a; --good:#4ade80; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.6 Inter,Helvetica,Arial,sans-serif; }
+main { max-width:1040px; margin:0 auto; padding:40px 16px 72px; }
+h1 { font-size:clamp(32px,5.5vw,52px); line-height:1.08; letter-spacing:-.02em; margin:0 0 16px; }
+h2 { font-size:clamp(24px,3.5vw,32px); letter-spacing:-.01em; margin:56px 0 16px; }
+.lede { font-size:20px; color:var(--muted); max-width:720px; }
+.eyebrow { font-size:13px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
+.scan { display:flex; flex-wrap:wrap; gap:10px; margin:24px 0 8px; }
+.scan input { flex:1 1 220px; font:inherit; padding:14px 16px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); }
+button, .button { font:700 16px Inter,Helvetica,Arial,sans-serif; background:var(--accent); color:var(--accent-fg); border:0; padding:15px 22px; border-radius:8px; cursor:pointer; text-decoration:none; display:inline-block; }
+.fine { font-size:14px; color:var(--muted); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px; }
+.card h3 { margin:0 0 6px; font-size:18px; }
+.card p { margin:0; color:var(--muted); font-size:15px; }
+.price { font-size:40px; font-weight:800; margin:8px 0 0; }
+.price span { font-size:16px; font-weight:500; color:var(--muted); }
+.card ul { padding-left:20px; margin:12px 0 18px; font-size:15px; }
+.card form { display:flex; flex-direction:column; gap:10px; }
+.card input { font:inherit; padding:12px 14px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); }
+.featured { border:2px solid var(--accent); }
+.sample { border-left:4px solid var(--accent); }
+.tag { font-size:11px; font-weight:700; text-transform:uppercase; color:#b42318; }
+details { border-bottom:1px solid var(--line); padding:14px 0; }
+summary { cursor:pointer; font-weight:600; }

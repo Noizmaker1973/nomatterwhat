@@ -1,5 +1,5 @@
-# Render Blueprint: one web service (landing page, checkout, webhooks) and one
-# daily cron job (generate + send). Deploy with "New > Blueprint" on Render and
+# Render Blueprint for both businesses in this repo. Each has a web service and
+# a cron job; delete the pair you are not using. Deploy with "New > Blueprint" on Render and
 # fill in the env vars marked sync: false.
 services:
   - type: web
@@ -23,6 +23,27 @@ services:
     envVars:
       - fromGroup: one-day-daily
 
+  - type: web
+    name: clearpath-audits-web
+    runtime: node
+    rootDir: consulting
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: clearpath-audits
+  - type: cron
+    name: clearpath-audits-worker
+    runtime: node
+    rootDir: consulting
+    plan: starter
+    schedule: "7 * * * *" # hourly: deliver missed audits and monthly reports
+    buildCommand: npm ci
+    startCommand: npm run worker
+    envVars:
+      - fromGroup: clearpath-audits
+
 envVarGroups:
   - name: one-day-daily
     envVars:
@@ -39,6 +60,32 @@ envVarGroups:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: RESEND_API_KEY
+        sync: false
+      - key: LINK_SECRET
+        generateValue: true
+  - name: clearpath-audits
+    envVars:
+      - key: BASE_URL
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: REPLY_TO
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: AUDIT_PRICE_ID
+        sync: false
+      - key: MONITOR_PRICE_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_AUDIENCE_ID
         sync: false
       - key: LINK_SECRET
         generateValue: true
