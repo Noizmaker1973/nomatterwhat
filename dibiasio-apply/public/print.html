@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Application Package | Dibiasio Realty</title>
+  <link rel="icon" href="/assets/icon.png">
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    body { background: #fff; }
+    .sheet { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+    .brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 3px solid var(--navy); padding-bottom: 12px; margin-bottom: 18px; }
+    .brand img { height: 80px; border-radius: 6px; }
+    .brand .right { text-align: right; font-size: .85rem; color: var(--muted); }
+    .bar-tools { position: sticky; top: 0; background: var(--navy-soft); padding: 10px 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; z-index: 5; }
+    section.block { break-inside: avoid-page; margin-bottom: 22px; }
+    section.block h2 { background: var(--navy); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 1rem; }
+    .applicant { break-before: page; }
+    .applicant:first-of-type { break-before: auto; }
+    .legal { max-height: none; }
+    @media print {
+      .bar-tools { display: none; }
+      .sheet { padding: 0; max-width: none; }
+      body { font-size: 11pt; }
+      dl.kv { font-size: 10pt; }
+      section.block h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bar-tools">
+    <button class="btn small" id="print">Print / Save as PDF</button>
+    <label class="small"><input type="checkbox" id="ssn"> Include full SSN</label>
+    <label class="small"><input type="checkbox" id="dealsheet" checked> Include deal sheet</label>
+    <label class="small"><input type="checkbox" id="commission"> Include commission details</label>
+  </div>
+  <div class="sheet" id="out"><p class="muted">Loading…</p></div>
+  <script src="/js/forms.js"></script>
+  <script src="/js/render.js"></script>
+  <script src="/js/print.js"></script>
+</body>
+</html>

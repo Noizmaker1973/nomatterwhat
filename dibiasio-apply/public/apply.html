@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rental Application | Dibiasio Realty</title>
+  <link rel="icon" href="/assets/icon.png">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="inner">
+      <a href="/"><img class="logo" src="/assets/logo.png" alt="Dibiasio Realty"></a>
+      <span class="spacer"></span>
+      <span id="saved-note" class="small" style="opacity:.8"></span>
+    </div>
+  </header>
+
+  <main class="wrap" id="app">
+    <div class="card"><p class="muted">Loading your application…</p></div>
+  </main>
+
+  <div class="overlay hidden" id="overlay">
+    <div class="box">
+      <h3 id="overlay-title">Submitting your application…</h3>
+      <p class="muted small" id="overlay-text">Uploading your documents. Please keep this page open.</p>
+      <div class="bar"><i id="overlay-bar"></i></div>
+    </div>
+  </div>
+
+  <footer class="foot">
+    Questions? Contact your Dibiasio Realty agent.<br>
+    Your information is encrypted in transit and at rest.
+  </footer>
+  <script src="/js/forms.js"></script>
+  <script src="/js/render.js"></script>
+  <script src="/js/apply.js"></script>
+</body>
+</html>

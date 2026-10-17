@@ -1,0 +1,90 @@
+# Dibiasio Realty — Online Rental Applications
+
+A branded application portal for Dibiasio Realty. Applicants fill out one of three
+applications on their phone or computer, e-sign, and upload their ID, pay stubs and
+other documents. Agents get a dashboard with every application, a document checklist,
+a deal sheet, credit-report tracking, and a printable / PDF package for the landlord.
+
+## The three applications
+
+| Link | Based on | Notes |
+|---|---|---|
+| `/apply?f=beantown` | Beantown Companies Rental Application (Rev 12/2025) | One application per household, up to 6 members, other-adult signatures |
+| `/apply?f=hamilton` | The Hamilton Company Lease Application + checklist + verification request | One per adult; includes release authorization, student and lead-paint questions, and a 2.5× income check |
+| `/apply?f=standard` | Dibiasio Realty standard rental application | One per adult; for all other landlords |
+
+Every question from the original paper forms is captured, regrouped into short
+mobile-friendly steps. The fields are defined in `public/js/forms.js`, so to add or
+change a question you edit one file.
+
+## How agents use it
+
+1. **New applicant link** (dashboard → *New link*): choose the application and enter
+   the apartment (address, unit, rent, move-in…). Copy, text or email the link. The
+   applicant sees the apartment and agent at the top, and those fields come pre-filled.
+2. Applicants who use the same link (roommates / co-applicants) are grouped into one **deal**.
+3. You get an email (if SMTP is configured), and the deal shows:
+   - each applicant's full application (SSN masked unless you choose *Show full SSN*), signature and consents
+   - a **document checklist** showing what's missing, with one-tap "please upload" messages
+     that include the applicant's private upload link
+   - **income ÷ rent**, move-in total and balance due
+   - **credit report** status (Not requested / Requested / Received / Waived), score, notes and the report itself
+   - the **deal sheet** (property, lease terms, move-in costs, broker fee, commission, plus
+     Hamilton/Beantown/standard-specific office fields)
+   - an activity log
+4. **Print / PDF** builds a branded package for the landlord. You can include or leave out
+   the full SSN, the deal sheet, and commission details.
+
+Each agent also has personal links (*Team* page) to post on listings. Anyone who
+applies through them is assigned to that agent automatically.
+
+## Credit reports
+
+Pulling a consumer credit report requires an account with a tenant-screening provider
+(consumer reporting agency), plus FCRA permissible purpose. The portal does **not**
+pull credit itself. It handles the rest of the workflow:
+
+- Every application includes the applicant's written authorization for a credit (and, for
+  Beantown, CORI) check.
+- Set `CREDIT_SCREENING_URL` to your provider's applicant link (for example TransUnion
+  SmartMove, RentSpree or MyRental). Applicants see a **Start credit check** button
+  right after submitting and on their status page, and agents can send the request in one tap.
+- When the report arrives, upload it on the applicant's card. The status changes to *Received*.
+
+If you later sign a screening partner with an API (e.g. TransUnion ShareAble), the
+hook to add it is `PUT /api/apps/:id/credit` in `server.js`.
+
+## Running it
+
+```bash
+cd dibiasio-apply
+cp .env.example .env      # set DATA_KEY, ADMIN_EMAIL / ADMIN_PASSWORD, etc.
+npm install
+npm start                 # http://localhost:5050
+npm test                  # end-to-end API tests
+```
+
+On first visit to `/agent`, the dashboard asks you to create an admin account (unless
+`ADMIN_EMAIL`/`ADMIN_PASSWORD` are set). Add your agents from the *Team* page.
+
+### Deploying (to get a public link)
+
+`render.yaml` deploys to Render with a persistent disk (Starter plan, about $7/mo, plus disk).
+Any Node host with a persistent disk and HTTPS will also work. In production:
+
+- Set `NODE_ENV=production`, `PUBLIC_URL=https://apply.dibiasiorealty.com` (or similar),
+  and a `DATA_KEY` that you **back up** — without it, stored data can't be decrypted.
+- Point a subdomain such as `apply.dibiasiorealty.com` at the service and link to it from your website.
+
+## Security & privacy
+
+- Applicant answers (SSN, DOB, signatures…) and every uploaded document are encrypted
+  at rest with AES-256-GCM. Applicants never see other applicants' data. Their private
+  status link can only add documents, not read the application back.
+- SSNs, ITINs and account numbers are never saved in the browser's draft.
+- The standard application asks only for the last 4 digits of bank accounts.
+- Agent passwords are scrypt-hashed. Sessions use HttpOnly, SameSite cookies, and
+  logins and submissions are rate-limited.
+- Uploads are limited to PDF, images and Word documents, 20 MB each.
+- The forms include Massachusetts fair-housing language and the sealed-record notice. Have
+  your attorney review the certification text before you go live.
