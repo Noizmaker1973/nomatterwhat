@@ -38,6 +38,13 @@ change a question you edit one file.
 Each agent also has personal links (*Team* page) to post on listings. Anyone who
 applies through them is assigned to that agent automatically.
 
+## Original landlord forms
+
+Each applicant card in the dashboard has a **form (PDF)** button. It prints the applicant's answers,
+signature and the deal-sheet terms onto the landlord's original paper form (`templates/*.pdf`:
+Beantown, Hamilton, or the standard e-FORMS application). The field positions live in
+`lib/original.js`; if a landlord revises their form, replace the template and adjust the positions.
+
 ## Email
 
 With `SMTP_HOST`, `SMTP_USER` and `SMTP_PASS` set (see `.env.example`), the portal sends mail

@@ -319,7 +319,8 @@
           <div><span class="step-label">Applicant ${i + 1}</span><h2 style="margin:0">${esc(a.name)}</h2>
             <span class="small">${a.email ? '<a href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : ''}${a.phone ? ' · <a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : ''}</span><br>
             <span class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()} · income ${a.monthlyIncome ? money(a.monthlyIncome) + '/mo' : 'not stated'}</span></div>
-          <div>${missing.length ? '<span class="pill warn">' + missing.length + ' doc(s) missing</span>' : '<span class="pill ok">Docs complete</span>'}</div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">${missing.length ? '<span class="pill warn">' + missing.length + ' doc(s) missing</span>' : '<span class="pill ok">Docs complete</span>'}
+            <a class="btn secondary small" href="/api/apps/${a.id}/original.pdf" target="_blank" title="The applicant's answers printed on ${esc(form.name)}'s original form">📄 ${esc(form.short)} form (PDF)</a></div>
         </div>
 
         <h4 style="margin:16px 0 0">Document checklist</h4>

@@ -5,6 +5,7 @@ const multer = require('multer');
 const store = require('./lib/store');
 const auth = require('./lib/auth');
 const notify = require('./lib/notify');
+const { fillOriginal } = require('./lib/original');
 const { FORMS, STATUSES, dealPrefill } = require('./public/js/forms');
 
 const PORT = process.env.PORT || 5050;
@@ -369,6 +370,19 @@ app.post('/api/apps/:id/files', upload.any(), (req, res) => {
   const deal = store.getDeal(a.dealId);
   if (deal) { log(deal, req.agent.name, 'Added ' + added.map((f) => f.name).join(', ') + ' to ' + a.summary.name); store.saveDeal(deal); }
   res.json(appSummary(a));
+});
+
+// The applicant's answers printed on the landlord's original paper form.
+app.get('/api/apps/:id/original.pdf', async (req, res, next) => {
+  const a = store.getApp(req.params.id);
+  if (!a) return res.status(404).send('Not found');
+  const deal = store.getDeal(a.dealId);
+  try {
+    const pdf = await fillOriginal({ formType: a.formType, app: a, application: store.openAnswers(a), sheet: deal ? deal.sheet : {}, agent: deal && deal.agentId && auth.get(deal.agentId) });
+    const name = (FORMS[a.formType].short + ' application - ' + a.summary.name).replace(/[^\w .-]/g, '');
+    res.set({ 'Content-Type': 'application/pdf', 'Cache-Control': 'private, no-store', 'Content-Disposition': (req.query.download ? 'attachment' : 'inline') + '; filename="' + name + '.pdf"' });
+    res.send(pdf);
+  } catch (e) { next(e); }
 });
 
 app.get('/api/files/:appId/:fileId', (req, res) => {

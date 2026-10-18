@@ -120,6 +120,14 @@ test('full flow: link → application with documents → agent review', async ()
   assert.equal(status.files.length, 3);
   assert.ok(!JSON.stringify(status).includes('123-45-6789'), 'status page never exposes answers');
 
+  // The answers printed on the landlord's original form.
+  const original = await call('/api/apps/' + a.id + '/original.pdf');
+  assert.equal(original.status, 200);
+  assert.equal(original.body.subarray(0, 5).toString(), '%PDF-');
+  const { PDFDocument } = require('pdf-lib');
+  assert.equal((await PDFDocument.load(original.body)).getPageCount(), 3, 'Hamilton form has 3 pages');
+  assert.equal((await call('/api/apps/' + a.id + '/original.pdf', { auth: false })).status, 401);
+
   // Agent: deal sheet, status, credit.
   await call('/api/deals/' + deal.id, { method: 'PUT', json: { sheet: { ...full.sheet, brokerFee: '2500', feePaidBy: 'Landlord' }, status: 'Sent to landlord' } });
   const credit = new FormData();
