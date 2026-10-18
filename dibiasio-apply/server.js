@@ -15,6 +15,8 @@ const CONFIG = {
   email: process.env.COMPANY_EMAIL || 'james@dibiasiorealty.com',
   creditScreeningUrl: process.env.CREDIT_SCREENING_URL || '',
   creditProvider: process.env.CREDIT_PROVIDER_NAME || 'our screening partner',
+  // Without SMTP, Email buttons open a draft in the agent's mail: 'gmail' (web) or 'mailto' (mail app).
+  composeWith: process.env.EMAIL_COMPOSE === 'gmail' ? 'gmail' : 'mailto',
 };
 
 const app = express();

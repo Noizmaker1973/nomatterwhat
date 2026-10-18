@@ -45,7 +45,16 @@
 
   // Send from the company mailbox when SMTP is configured; otherwise open the agent's mail app.
   function emailCompose({ to = '', subject, text, dealId }) {
-    if (!config.emailEnabled) { location.href = mailLink(subject, text, to); return; }
+    if (!config.emailEnabled) {
+      if (config.composeWith === 'gmail') {
+        const url = 'https://mail.google.com/mail/?authuser=' + encodeURIComponent(me.email) + '&view=cm&fs=1&to=' + encodeURIComponent(to) +
+          '&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text);
+        window.open(url, '_blank', 'noopener');
+      } else {
+        location.href = mailLink(subject, text, to);
+      }
+      return;
+    }
     const overlay = document.createElement('div');
     overlay.className = 'overlay';
     overlay.innerHTML = `<form class="box grid" style="text-align:left;width:min(560px,100%)">

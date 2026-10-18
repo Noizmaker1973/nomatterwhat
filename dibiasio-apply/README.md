@@ -48,7 +48,8 @@ from the company mailbox (`MAIL_FROM_ADDRESS`, e.g. james@dibiasiorealty.com):
   requests, free-form messages). These go out as "Agent Name | Dibiasio Realty" and replies go to
   the agent's own address. Each one is logged on the deal.
 
-Without SMTP, the Email buttons open the agent's own mail app instead.
+Without SMTP, the Email buttons open a pre-filled draft in the agent's own mail app, or in Gmail
+in the browser when `EMAIL_COMPOSE=gmail` (signed in as the agent's address), so mail still comes from their own account.
 
 ## Credit reports
 
