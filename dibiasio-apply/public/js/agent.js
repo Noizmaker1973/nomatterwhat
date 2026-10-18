@@ -41,7 +41,44 @@
   const creditMsg = (a) => 'Hi ' + firstName(a) + ', the landlord needs a credit report for your application. Please complete it here: ' + config.creditScreeningUrl + ' — ' + me.name;
   const docsMsg = (form, a) => 'Hi ' + firstName(a) + ', to finish your application please upload: ' + missingDocs(form, a).map((d) => d.label).join(', ') + '. Use your private link: ' + a.statusUrl + ' — ' + me.name;
   const smsLink = (text) => 'sms:?&body=' + encodeURIComponent(text);
-  const mailLink = (subject, text) => 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text);
+  const mailLink = (subject, text, to) => 'mailto:' + encodeURIComponent(to || '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text);
+
+  // Send from the company mailbox when SMTP is configured; otherwise open the agent's mail app.
+  function emailCompose({ to = '', subject, text, dealId }) {
+    if (!config.emailEnabled) { location.href = mailLink(subject, text, to); return; }
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = `<form class="box grid" style="text-align:left;width:min(560px,100%)">
+      <div class="fld"><h3 style="margin:0">Send email</h3><span class="small muted">From ${esc(me.name)} | Dibiasio Realty · replies go to ${esc(me.email)}</span></div>
+      <div class="fld"><label class="lbl" for="em-to">To</label><input id="em-to" type="email" required value="${esc(to)}" placeholder="applicant@example.com"></div>
+      <div class="fld"><label class="lbl" for="em-subject">Subject</label><input id="em-subject" required value="${esc(subject)}"></div>
+      <div class="fld"><label class="lbl" for="em-text">Message</label><textarea id="em-text" required style="min-height:160px">${esc(text)}</textarea></div>
+      <div class="fld"><div id="em-err" class="notice bad hidden"></div><div class="nav-row" style="margin-top:0"><button type="button" class="btn secondary" data-cancel>Cancel</button><button class="btn">Send</button></div></div>
+    </form>`;
+    document.body.appendChild(overlay);
+    const form = overlay.querySelector('form');
+    const close = () => overlay.remove();
+    overlay.querySelector('[data-cancel]').onclick = close;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    (to ? overlay.querySelector('#em-text') : overlay.querySelector('#em-to')).focus();
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button:not([data-cancel])');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      try {
+        await api('/api/email', { method: 'POST', body: { to: form.querySelector('#em-to').value, subject: form.querySelector('#em-subject').value, text: form.querySelector('#em-text').value, dealId } });
+        close();
+        toast('Email sent');
+      } catch (err) {
+        const box = overlay.querySelector('#em-err');
+        box.textContent = err.message;
+        box.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Send';
+      }
+    };
+  }
 
   /* ------------------------------- routing ------------------------------ */
   window.addEventListener('hashchange', route);
@@ -179,12 +216,13 @@
       <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn" id="cp">Copy link</button></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         <a class="btn secondary" href="${esc(smsLink(msg))}">Text it</a>
-        <a class="btn secondary" href="${esc(mailLink('Your rental application', msg))}">Email it</a>
+        <button class="btn secondary" id="em">Email it</button>
         <button class="btn secondary" id="cpm">Copy message</button>
         <a class="btn ghost" href="#deal/${deal.id}">Open deal →</a>
       </div></div>`;
     document.getElementById('cp').onclick = () => copy(deal.link);
     document.getElementById('cpm').onclick = () => copy(msg, 'Message');
+    document.getElementById('em').onclick = () => emailCompose({ subject: 'Your rental application', text: msg, dealId: deal.id });
   }
 
   /* -------------------------------- deal -------------------------------- */
@@ -226,7 +264,7 @@
         <div>
           <div class="card"><h3>Applicant link</h3><p class="muted small">Send to co-applicants — everyone who applies with it is added here.</p>
             <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn secondary small" id="cp-link">Copy</button></div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(smsLink(linkMessage(deal)))}">Text</a><a class="btn ghost small" href="${esc(mailLink('Your rental application', linkMessage(deal)))}">Email</a></div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(smsLink(linkMessage(deal)))}">Text</a><button class="btn ghost small" id="em-link">Email</button></div>
           </div>
           <div class="card"><h3>Activity</h3><ul class="activity">${(deal.activity || []).map((a) => '<li><time>' + new Date(a.at).toLocaleString() + ' · ' + esc(a.who) + '</time>' + esc(a.text) + '</li>').join('') || '<li class="muted">Nothing yet.</li>'}</ul></div>
           ${me.role === 'admin' ? '<div class="card"><h3>Delete</h3><p class="muted small">Permanently deletes this deal, its applications and documents.</p><button class="btn danger small" id="del">Delete deal</button></div>' : ''}
@@ -247,6 +285,7 @@
     document.getElementById('status').onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { status: e.target.value } }); toast('Status updated'); renderDeal(id); };
     document.getElementById('assign').onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { agentId: e.target.value } }); toast('Agent updated'); renderDeal(id); };
     document.getElementById('cp-link').onclick = () => copy(deal.link);
+    document.getElementById('em-link').onclick = () => emailCompose({ subject: 'Your rental application', text: linkMessage(deal), dealId: deal.id });
     const del = document.getElementById('del');
     if (del) del.onclick = async () => {
       if (!confirm('Permanently delete this deal and all of its applications and documents?')) return;
@@ -284,7 +323,8 @@
         <div class="inline-form">
           <select class="input" data-up-type>${docs.map((d) => '<option value="' + d.id + '">' + esc(d.label) + '</option>').join('')}</select>
           <label class="btn secondary small">Upload for applicant<input type="file" multiple class="hidden" data-up></label>
-          ${missing.length ? '<button class="btn ghost small" data-req-docs>Copy “please upload” message</button>' : ''}
+          ${missing.length ? '<button class="btn ghost small" data-email-docs>Email “please upload” request</button><button class="btn ghost small" data-req-docs>Copy message</button>' : ''}
+          ${a.email ? '<button class="btn ghost small" data-email-app>Email applicant</button>' : ''}
           <button class="btn ghost small" data-status-link>Copy applicant's upload link</button>
         </div>
 
@@ -296,7 +336,7 @@
             <button class="btn secondary small" data-credit-save>Save</button>
           </div>
           <div class="inline-form" style="margin-top:8px">
-            ${config.creditScreeningUrl ? '<button class="btn ghost small" data-credit-msg>Copy credit-check request</button><a class="btn ghost small" href="' + esc(smsLink(creditMsg(a))) + '">Text request</a>' : '<span class="small muted">Tip: set CREDIT_SCREENING_URL to your screening provider\'s applicant link to send credit-check requests in one tap.</span>'}
+            ${config.creditScreeningUrl ? '<button class="btn ghost small" data-email-credit>Email credit-check request</button><button class="btn ghost small" data-credit-msg>Copy request</button><a class="btn ghost small" href="' + esc(smsLink(creditMsg(a))) + '">Text request</a>' : '<span class="small muted">Tip: set CREDIT_SCREENING_URL to your screening provider\'s applicant link to send credit-check requests in one tap.</span>'}
             <label class="btn ghost small">Upload credit report<input type="file" class="hidden" data-credit-up accept="application/pdf,image/*"></label>
           </div>
           ${a.credit.updatedAt ? '<div class="help">Updated ' + new Date(a.credit.updatedAt).toLocaleString() + ' by ' + esc(a.credit.by || '') + '</div>' : ''}
@@ -318,6 +358,15 @@
       q('[data-status-link]').onclick = () => copy(a.statusUrl, 'Upload link');
       const rd = q('[data-req-docs]');
       if (rd) rd.onclick = () => copy(docsMsg(form, a), 'Message');
+      const ed = q('[data-email-docs]');
+      if (ed) ed.onclick = () => emailCompose({ to: a.email, subject: 'Documents needed for your rental application', text: docsMsg(form, a), dealId: deal.id });
+      const ea = q('[data-email-app]');
+      if (ea) ea.onclick = () => emailCompose({ to: a.email, subject: 'Your rental application' + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: 'Hi ' + firstName(a) + ',\n\n\n\n' + me.name + '\nDibiasio Realty' + (me.phone ? '\n' + me.phone : ''), dealId: deal.id });
+      const ec = q('[data-email-credit]');
+      if (ec) ec.onclick = async () => {
+        emailCompose({ to: a.email, subject: 'Credit check for your rental application', text: creditMsg(a), dealId: deal.id });
+        if (a.credit.status === 'Not requested') await api('/api/apps/' + a.id + '/credit', { method: 'PUT', body: { status: 'Requested' } });
+      };
       const cm = q('[data-credit-msg]');
       if (cm) cm.onclick = async () => {
         copy(creditMsg(a), 'Credit-check request');
@@ -365,7 +414,7 @@
       <div class="card"><h2>Agents</h2>
         <table class="deals"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th></th></tr></thead><tbody>
         ${agents.map((a) => '<tr><td data-l="Name">' + esc(a.name) + '</td><td data-l="Email">' + esc(a.email) + '</td><td data-l="Phone">' + esc(a.phone) + '</td><td data-l="Role">' + esc(a.role) + '</td><td>' +
-          (admin || a.id === me.id ? '<button class="btn ghost small" data-pw="' + a.id + '">Set password</button>' : '') +
+          (admin || a.id === me.id ? '<button class="btn ghost small" data-edit="' + a.id + '">Edit</button><button class="btn ghost small" data-pw="' + a.id + '">Set password</button>' : '') +
           (admin && a.id !== me.id ? '<button class="btn ghost small" data-rm="' + a.id + '">Remove</button>' : '') + '</td></tr>').join('')}
         </tbody></table>
       </div>
@@ -377,6 +426,19 @@
         <div class="fld half"><label class="lbl" for="a-role">Role</label><select id="a-role"><option value="agent">Agent</option><option value="admin">Admin (can add agents & delete deals)</option></select></div>
         <div class="fld"><button class="btn">Add agent</button></div></form></div>` : ''}`;
     $app.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => copy(b.dataset.copy));
+    $app.querySelectorAll('[data-edit]').forEach((b) => b.onclick = async () => {
+      const agent = agents.find((x) => x.id === b.dataset.edit);
+      const name = prompt('Name (shown to applicants and on emails):', agent.name);
+      if (name == null) return;
+      const phone = prompt('Phone (shown to applicants):', agent.phone || '');
+      if (phone == null) return;
+      try {
+        const updated = await api('/api/agents/' + agent.id, { method: 'PUT', body: { name, phone } });
+        if (updated.id === me.id) me = updated;
+        toast('Profile updated');
+        renderAgents();
+      } catch (e) { alert(e.message); }
+    });
     $app.querySelectorAll('[data-pw]').forEach((b) => b.onclick = async () => {
       const pw = prompt('New password (at least 10 characters):');
       if (!pw) return;

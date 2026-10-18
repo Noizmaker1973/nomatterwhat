@@ -29,7 +29,15 @@ services:
         sync: false
       - key: CREDIT_SCREENING_URL
         sync: false
-      - key: SMTP_URL
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM_ADDRESS
         sync: false
       - key: NOTIFY_EMAIL
         sync: false

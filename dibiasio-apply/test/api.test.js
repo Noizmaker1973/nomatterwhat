@@ -155,3 +155,14 @@ test('rejects unsupported file types', async () => {
   const res = await call('/api/public/applications', { method: 'POST', body: fd, auth: false });
   assert.equal(res.status, 400);
 });
+
+test('agents can update their profile; email requires SMTP', async () => {
+  const me = (await call('/api/me')).body.agent;
+  const updated = await call('/api/agents/' + me.id, { method: 'PUT', json: { name: 'James Guilford', phone: '617-555-0000' } });
+  assert.equal(updated.body.name, 'James Guilford');
+  assert.equal((await call('/api/agents/' + me.id, { method: 'PUT', json: { name: '  ' } })).status, 400);
+  assert.equal((await call('/api/public/config', { auth: false })).body.emailEnabled, false);
+  const res = await call('/api/email', { method: 'POST', json: { to: 'a@example.com', subject: 'Hi', text: 'Hello' } });
+  assert.equal(res.status, 400);
+  assert.equal((await call('/api/email', { method: 'POST', json: { to: 'a@example.com', subject: 'Hi', text: 'x' }, auth: false })).status, 401);
+});

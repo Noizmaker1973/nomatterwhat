@@ -37,6 +37,12 @@ function createAgent({ name, email, phone, password, role }) {
 if (!agents.length && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
   createAgent({ name: process.env.ADMIN_NAME || 'Administrator', email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD, role: 'admin' });
 }
+// ADMIN_NAME also corrects the seeded admin's display name on later starts.
+const seeded = process.env.ADMIN_NAME && agents.find((a) => a.email === String(process.env.ADMIN_EMAIL || '').toLowerCase());
+if (seeded && seeded.name !== process.env.ADMIN_NAME) {
+  seeded.name = process.env.ADMIN_NAME;
+  saveAgents();
+}
 
 function sign(value) {
   return crypto.createHmac('sha256', sessionKey).update(value).digest('base64url');
@@ -72,6 +78,17 @@ module.exports = {
   login(email, password) {
     const agent = agents.find((a) => a.email === String(email || '').trim().toLowerCase());
     return agent && checkPassword(agent, String(password || '')) ? agent : null;
+  },
+  updateProfile(agentId, { name, phone }) {
+    const agent = agents.find((a) => a.id === agentId);
+    if (!agent) throw new Error('Agent not found.');
+    if (name != null) {
+      if (!String(name).trim()) throw new Error('Name is required.');
+      agent.name = String(name).trim();
+    }
+    if (phone != null) agent.phone = String(phone).trim();
+    saveAgents();
+    return agent;
   },
   setPassword(agentId, password) {
     if (String(password).length < 10) throw new Error('Password must be at least 10 characters.');

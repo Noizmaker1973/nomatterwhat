@@ -38,6 +38,18 @@ change a question you edit one file.
 Each agent also has personal links (*Team* page) to post on listings. Anyone who
 applies through them is assigned to that agent automatically.
 
+## Email
+
+With `SMTP_HOST`, `SMTP_USER` and `SMTP_PASS` set (see `.env.example`), the portal sends mail
+from the company mailbox (`MAIL_FROM_ADDRESS`, e.g. james@dibiasiorealty.com):
+
+- alerts to the assigned agent when an application or new documents arrive (copied to `NOTIFY_EMAIL`)
+- the dashboard's **Email** buttons (applicant link, "please upload" requests, credit-check
+  requests, free-form messages). These go out as "Agent Name | Dibiasio Realty" and replies go to
+  the agent's own address. Each one is logged on the deal.
+
+Without SMTP, the Email buttons open the agent's own mail app instead.
+
 ## Credit reports
 
 Pulling a consumer credit report requires an account with a tenant-screening provider

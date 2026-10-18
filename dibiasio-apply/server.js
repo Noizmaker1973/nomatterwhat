@@ -124,7 +124,7 @@ function newDeal(formType, agentId, sheet) {
 }
 
 /* ----------------------------- public API -------------------------------- */
-app.get('/api/public/config', (req, res) => res.json({ ...CONFIG, statuses: STATUSES }));
+app.get('/api/public/config', (req, res) => res.json({ ...CONFIG, statuses: STATUSES, emailEnabled: notify.enabled }));
 
 app.get('/api/public/deal/:token', (req, res) => {
   const deal = store.findDealByToken(req.params.token);
@@ -261,6 +261,10 @@ app.get('/api/agents', (req, res) => res.json(auth.list()));
 app.post('/api/agents', auth.requireAdmin, (req, res) => {
   try { res.json(auth.publicAgent(auth.createAgent(req.body))); } catch (e) { res.status(400).json({ error: e.message }); }
 });
+app.put('/api/agents/:id', (req, res) => {
+  if (req.agent.role !== 'admin' && req.agent.id !== req.params.id) return res.status(403).json({ error: 'Not allowed.' });
+  try { res.json(auth.publicAgent(auth.updateProfile(req.params.id, req.body))); } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.post('/api/agents/:id/password', (req, res) => {
   if (req.agent.role !== 'admin' && req.agent.id !== req.params.id) return res.status(403).json({ error: 'Not allowed.' });
   try { auth.setPassword(req.params.id, req.body.password); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); }
@@ -271,7 +275,25 @@ app.delete('/api/agents/:id', auth.requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.use(['/api/deals', '/api/apps', '/api/files'], auth.require);
+app.use(['/api/deals', '/api/apps', '/api/files', '/api/email'], auth.require);
+
+// Agents email applicants straight from the dashboard. Mail goes out from the
+// company mailbox; replies go to the agent who sent it.
+app.post('/api/email', rateLimit(60, 3600e3), async (req, res) => {
+  const { to, subject, text, dealId } = req.body || {};
+  if (!notify.enabled) return res.status(400).json({ error: 'Email sending isn\'t set up yet.' });
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(to || '').trim())) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (!subject || !text) return res.status(400).json({ error: 'Subject and message are required.' });
+  try {
+    await notify.sendAs(req.agent, { to: String(to).trim(), subject: String(subject).slice(0, 200), text: String(text).slice(0, 10000) });
+  } catch (e) {
+    console.error('[email]', e.message);
+    return res.status(502).json({ error: 'The email couldn\'t be sent. Check the email settings and try again.' });
+  }
+  const deal = dealId && store.getDeal(dealId);
+  if (deal) { log(deal, req.agent.name, 'Emailed ' + String(to).trim() + ': ' + String(subject).slice(0, 80)); store.saveDeal(deal); }
+  res.json({ ok: true });
+});
 
 app.get('/api/deals', (req, res) => {
   res.json(store.listDeals().map(dealSummary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
