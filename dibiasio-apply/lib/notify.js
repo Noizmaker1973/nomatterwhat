@@ -45,7 +45,7 @@ function post(target, headers, body) {
     const req = (u.protocol === 'http:' ? http : https).request(u, { method: 'POST', headers: { ...headers, 'Content-Length': Buffer.byteLength(body) }, family: 4, timeout: 10000 }, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
-      res.on('end', () => (res.statusCode < 300 ? resolve(data) : reject(new Error('ntfy responded ' + res.statusCode + ' ' + data.slice(0, 200)))));
+      res.on('end', () => (res.statusCode < 300 ? resolve(data) : reject(new Error(u.host + ' responded ' + res.statusCode + ' ' + data.slice(0, 200)))));
     });
     req.on('timeout', () => req.destroy(new Error('timed out connecting to ' + u.host)));
     req.on('error', (e) => reject(new Error('could not reach ' + u.host + ': ' + (e.code || e.message))));
@@ -60,9 +60,29 @@ async function push({ title, message, url, email }) {
   try {
     await post(target, headers, message);
   } catch (e) {
-    if (/ntfy responded 4/.test(e.message)) throw e; // a rejected request won't succeed on retry
+    if (/ responded 4/.test(e.message)) throw e; // a rejected request won't succeed on retry
     await new Promise((r) => setTimeout(r, 2000));
     await post(target, headers, message);
+  }
+}
+
+// Resend (resend.com) emails alerts over HTTPS when SMTP isn't available. Without
+// a verified domain, Resend only delivers to the account owner's own address, so
+// these alerts go to RESEND_TO (default NOTIFY_EMAIL).
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_API_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails';
+const RESEND_FROM = process.env.RESEND_FROM || 'Dibiasio Applications <onboarding@resend.dev>';
+const RESEND_TO = process.env.RESEND_TO || FALLBACK;
+
+async function resend({ subject, text }) {
+  const body = JSON.stringify({ from: RESEND_FROM, to: [RESEND_TO], subject, text });
+  const headers = { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' };
+  try {
+    await post(RESEND_API_URL, headers, body);
+  } catch (e) {
+    if (/ responded 4/.test(e.message)) throw e;
+    await new Promise((r) => setTimeout(r, 2000));
+    await post(RESEND_API_URL, headers, body);
   }
 }
 
@@ -72,9 +92,10 @@ async function alert(to, { subject, text, title, message, url }) {
   if (transport && recipients.length) {
     jobs.push(transport.sendMail({ from: { name: FROM_NAME + ' Applications', address: FROM_ADDRESS }, to: recipients.join(', '), subject, text }));
   }
+  if (!transport && RESEND_API_KEY && RESEND_TO) jobs.push(resend({ subject, text }));
   if (NTFY_TOPIC) {
     // ntfy forwards to one address per message, so send the email copies separately.
-    const emails = transport ? [] : recipients;
+    const emails = transport || RESEND_API_KEY ? [] : recipients;
     jobs.push(push({ title, message, url, email: emails[0] }));
     emails.slice(1).forEach((email) => jobs.push(push({ title, message, url, email })));
   }
@@ -87,7 +108,7 @@ const where = (deal) => [deal.sheet.address, deal.sheet.unit && 'Unit ' + deal.s
 
 module.exports = {
   enabled: Boolean(transport),
-  alertsConfigured: Boolean(transport || NTFY_TOPIC),
+  alertsConfigured: Boolean(transport || (RESEND_API_KEY && RESEND_TO) || NTFY_TOPIC),
   testAlert: (agent, dashboardUrl) => alert(agent.email, {
     subject: 'Test alert from your application portal',
     text: 'Alerts are working. New applications will show up like this.\n\n' + dashboardUrl,

@@ -67,3 +67,35 @@ test('the Team page test alert reaches ntfy', async () => {
   assert.equal(received[0].headers.title, 'Test alert');
   assert.equal(received[0].headers.email, 'james@dibiasiorealty.com');
 });
+
+test('with a Resend key, alerts are emailed through the Resend API', async () => {
+  const resendHits = [];
+  const fake = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => { resendHits.push({ headers: req.headers, body: JSON.parse(body) }); res.end('{"id":"x"}'); });
+  }).listen(0);
+  const port = PORT + 1;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dr-resend-'));
+  const child = spawn(process.execPath, ['server.js'], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: String(port), DATA_DIR: dir, DATA_KEY: 'b2'.repeat(32), PERSISTENT_DISK: '', SMTP_URL: '', SMTP_HOST: '', NTFY_TOPIC: '',
+      RESEND_API_KEY: 're_test', RESEND_API_URL: 'http://127.0.0.1:' + fake.address().port + '/emails', NOTIFY_EMAIL: 'james@dibiasiorealty.com',
+      ADMIN_NAME: 'James Guilford', ADMIN_EMAIL: 'james@dibiasiorealty.com', ADMIN_PASSWORD: 'long enough password' },
+    stdio: 'pipe',
+  });
+  try {
+    await new Promise((resolve) => child.stdout.on('data', (d) => /running at/.test(d) && resolve()));
+    const login = await fetch('http://127.0.0.1:' + port + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'james@dibiasiorealty.com', password: 'long enough password' }) });
+    const res = await fetch('http://127.0.0.1:' + port + '/api/alerts/test', { method: 'POST', headers: { cookie: login.headers.get('set-cookie').split(';')[0] } });
+    assert.equal(res.status, 200, await res.text());
+    assert.equal(resendHits.length, 1);
+    assert.equal(resendHits[0].headers.authorization, 'Bearer re_test');
+    assert.deepEqual(resendHits[0].body.to, ['james@dibiasiorealty.com']);
+    assert.match(resendHits[0].body.subject, /Test alert/);
+  } finally {
+    child.kill();
+    fake.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

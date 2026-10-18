@@ -48,7 +48,12 @@ from the company mailbox (`MAIL_FROM_ADDRESS`, e.g. james@dibiasiorealty.com):
   requests, free-form messages). These go out as "Agent Name | Dibiasio Realty" and replies go to
   the agent's own address. Each one is logged on the deal.
 
-**Alerts without SMTP:** set `NTFY_TOPIC` to a long random name. Each new application or
+**Alerts without SMTP (Resend):** sign up at resend.com with the address that should receive
+alerts and set `RESEND_API_KEY`. Each new application or document upload is emailed to
+`RESEND_TO` (default `NOTIFY_EMAIL`). Without a verified domain, Resend only delivers to the
+account owner's address, so other agents see new applications in the dashboard.
+
+**Alerts via ntfy:** set `NTFY_TOPIC` to a long random name. Each new application or
 document upload then sends a notification to the free ntfy phone app (subscribe to that
 topic), and ntfy forwards it by email to the assigned agent (and `NOTIFY_EMAIL`). Only the
 application type, property and a dashboard link go through ntfy, never applicant details.

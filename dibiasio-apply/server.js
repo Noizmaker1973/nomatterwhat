@@ -280,7 +280,7 @@ app.delete('/api/agents/:id', auth.requireAdmin, (req, res) => {
 app.use(['/api/deals', '/api/apps', '/api/files', '/api/email', '/api/alerts'], auth.require);
 
 app.post('/api/alerts/test', rateLimit(10, 3600e3), async (req, res) => {
-  if (!notify.alertsConfigured) return res.status(400).json({ error: 'No alert channel is set up (SMTP or NTFY_TOPIC).' });
+  if (!notify.alertsConfigured) return res.status(400).json({ error: 'No alert channel is set up (SMTP, RESEND_API_KEY or NTFY_TOPIC).' });
   try {
     await notify.testAlert(req.agent, PUBLIC_URL + '/agent');
     res.json({ ok: true });
