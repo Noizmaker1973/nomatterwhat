@@ -252,7 +252,8 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <select class="input" id="status" style="width:auto">${STATUSES.map((s) => '<option' + (s === deal.status ? ' selected' : '') + '>' + esc(s) + '</option>').join('')}</select>
           <select class="input" id="assign" style="width:auto"><option value="">Unassigned</option>${agents.map((a) => '<option value="' + a.id + '"' + (a.id === deal.agentId ? ' selected' : '') + '>' + esc(a.name) + '</option>').join('')}</select>
-          <a class="btn secondary" href="/agent/print?deal=${deal.id}" target="_blank">Print / PDF</a>
+          <a class="btn secondary" href="/agent/print?deal=${deal.id}" target="_blank">Print summary</a>
+          ${deal.applicants.length ? '<a class="btn" href="/api/deals/' + deal.id + '/package.pdf" target="_blank" title="Every applicant\'s original form and documents, merged into one PDF for the landlord">📎 Landlord package (PDF)</a>' : ''}
         </div>
       </div>
       <div class="metrics">
@@ -320,7 +321,8 @@
             <span class="small">${a.email ? '<a href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : ''}${a.phone ? ' · <a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : ''}</span><br>
             <span class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()} · income ${a.monthlyIncome ? money(a.monthlyIncome) + '/mo' : 'not stated'}</span></div>
           <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">${missing.length ? '<span class="pill warn">' + missing.length + ' doc(s) missing</span>' : '<span class="pill ok">Docs complete</span>'}
-            <a class="btn secondary small" href="/api/apps/${a.id}/original.pdf" target="_blank" title="The applicant's answers printed on ${esc(form.name)}'s original form">📄 ${esc(form.short)} form (PDF)</a></div>
+            <a class="btn secondary small" href="/api/apps/${a.id}/original.pdf" target="_blank" title="The applicant's answers printed on ${esc(form.name)}'s original form">📄 ${esc(form.short)} form (PDF)</a>
+            <a class="btn small" href="/api/apps/${a.id}/package.pdf" target="_blank" title="${esc(form.short)} form followed by the applicant's ID, pay stubs and other documents, merged into one PDF">📎 Form + documents (PDF)</a></div>
         </div>
 
         <h4 style="margin:16px 0 0">Document checklist</h4>
@@ -328,7 +330,7 @@
           const files = filesFor(d.id);
           if (!files.length && !d.req && (d.id === 'other' || d.id === 'credit_report')) return '';
           return '<li><div class="row"><span>' + (files.length ? '✅' : d.req ? '⚠️' : '▫️') + ' ' + esc(d.label) + '</span>' + (files.length ? '' : d.req ? '<span class="pill warn">Missing</span>' : '<span class="muted small">If applicable</span>') + '</div>' +
-            (files.length ? '<div class="files">' + files.map((f) => '<a href="/api/files/' + a.id + '/' + f.id + '" target="_blank" title="' + esc(f.name) + '">' + esc(f.name) + (f.by === 'agent' ? ' (agent)' : '') + '</a><a href="/api/files/' + a.id + '/' + f.id + '?download=1" title="Download">⬇</a>').join('') + '</div>' : '') + '</li>';
+            (files.length ? '<div class="files">' + files.map((f) => '<a href="/api/files/' + a.id + '/' + f.id + '" target="_blank" title="' + esc(f.name) + '">' + esc(f.name) + (f.by === 'agent' ? ' (agent)' : '') + '</a><a href="/api/files/' + a.id + '/' + f.id + '?download=1" title="Download">⬇</a>' + (/^image\//.test(f.mime) ? '<a href="/api/files/' + a.id + '/' + f.id + '?as=pdf" target="_blank" title="Open this photo as a PDF">PDF</a>' : '')).join('') + '</div>' : '') + '</li>';
         }).join('')}</ul>
         <div class="inline-form">
           <select class="input" data-up-type>${docs.map((d) => '<option value="' + d.id + '">' + esc(d.label) + '</option>').join('')}</select>

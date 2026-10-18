@@ -6,6 +6,7 @@ const store = require('./lib/store');
 const auth = require('./lib/auth');
 const notify = require('./lib/notify');
 const { fillOriginal } = require('./lib/original');
+const { buildPackage, fileAsPdf } = require('./lib/package');
 const { FORMS, STATUSES, dealPrefill } = require('./public/js/forms');
 
 const PORT = process.env.PORT || 5050;
@@ -386,6 +387,51 @@ app.get('/api/apps/:id/original.pdf', async (req, res, next) => {
     const pdf = await fillOriginal({ formType: a.formType, app: a, application: store.openAnswers(a), sheet: deal ? deal.sheet : {}, agent: deal && deal.agentId && auth.get(deal.agentId) });
     const name = (FORMS[a.formType].short + ' application - ' + a.summary.name).replace(/[^\w .-]/g, '');
     res.set({ 'Content-Type': 'application/pdf', 'Cache-Control': 'private, no-store', 'Content-Disposition': (req.query.download ? 'attachment' : 'inline') + '; filename="' + name + '.pdf"' });
+    res.send(pdf);
+  } catch (e) { next(e); }
+});
+
+// Landlord package: original form(s) followed by every uploaded document, as one PDF.
+function docLabels(form) {
+  return Object.fromEntries(form.documents.map((d) => [d.id, d.label]).concat([['other', 'Other document'], ['credit_report', 'Credit report']]));
+}
+async function sendPackage(res, req, deal, apps) {
+  const form = FORMS[deal.formType];
+  const pdf = await buildPackage({
+    formType: deal.formType,
+    sheet: deal.sheet,
+    agent: deal.agentId && auth.get(deal.agentId),
+    docLabels: docLabels(form),
+    includeCredit: req.query.credit === '1',
+    applicants: apps.map((a) => ({ app: a, application: store.openAnswers(a), files: a.files.map((meta) => ({ meta, buffer: store.readFile(a.id, meta.id) })) })),
+  });
+  const who = apps.map((a) => a.summary.name).join(', ');
+  const name = (form.short + ' application package - ' + who).replace(/[^\w ,.-]/g, '').slice(0, 150);
+  res.set({ 'Content-Type': 'application/pdf', 'Cache-Control': 'private, no-store', 'Content-Disposition': (req.query.download ? 'attachment' : 'inline') + '; filename="' + name + '.pdf"' });
+  res.send(pdf);
+}
+app.get('/api/apps/:id/package.pdf', async (req, res, next) => {
+  const a = store.getApp(req.params.id);
+  const deal = a && store.getDeal(a.dealId);
+  if (!deal) return res.status(404).send('Not found');
+  try { await sendPackage(res, req, deal, [a]); } catch (e) { next(e); }
+});
+app.get('/api/deals/:id/package.pdf', async (req, res, next) => {
+  const deal = store.getDeal(req.params.id);
+  if (!deal) return res.status(404).send('Not found');
+  const apps = store.appsForDeal(deal);
+  if (!apps.length) return res.status(400).send('No applications yet.');
+  try { await sendPackage(res, req, deal, apps); } catch (e) { next(e); }
+});
+
+app.get('/api/files/:appId/:fileId', async (req, res, next) => {
+  if (req.query.as !== 'pdf') return next();
+  const a = store.getApp(req.params.appId);
+  const meta = a && a.files.find((x) => x.id === req.params.fileId);
+  if (!meta) return res.status(404).send('Not found');
+  try {
+    const pdf = await fileAsPdf(meta, store.readFile(a.id, meta.id));
+    res.set({ 'Content-Type': 'application/pdf', 'Cache-Control': 'private, no-store', 'Content-Disposition': 'inline; filename="' + meta.name.replace(/\.[^.]+$/, '').replace(/["\\\r\n]/g, '_') + '.pdf"' });
     res.send(pdf);
   } catch (e) { next(e); }
 });

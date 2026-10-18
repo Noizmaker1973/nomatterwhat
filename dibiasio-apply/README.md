@@ -45,6 +45,12 @@ signature and the deal-sheet terms onto the landlord's original paper form (`tem
 Beantown, Hamilton, or the standard e-FORMS application). The field positions live in
 `lib/original.js`; if a landlord revises their form, replace the template and adjust the positions.
 
+**Landlord package:** *Form + documents (PDF)* on an applicant card, or *Landlord package (PDF)*
+at the top of a deal for every applicant at once, merges the original form(s) with the uploaded
+documents (ID, pay stubs, tax return, …) into one PDF. Photos (JPEG, PNG, HEIC, WebP, GIF, TIFF)
+are turned upright and converted to PDF pages; Word documents get a placeholder page. Credit
+reports are left out unless `?credit=1` is added. Any photo can also be opened alone as a PDF.
+
 ## Email
 
 With `SMTP_HOST`, `SMTP_USER` and `SMTP_PASS` set (see `.env.example`), the portal sends mail
