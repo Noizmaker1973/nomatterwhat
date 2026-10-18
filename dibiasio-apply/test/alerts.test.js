@@ -58,3 +58,12 @@ test('a completed application pushes an alert and emails the assigned agent, wit
   assert.match(msg.body, /45 Moody Street, Unit 3B/);
   assert.ok(!/Riley|riley@example\.com/.test(JSON.stringify(msg)), 'no applicant details leave via ntfy');
 });
+
+test('the Team page test alert reaches ntfy', async () => {
+  received.length = 0;
+  const res = await fetch(base + '/api/alerts/test', { method: 'POST', headers: { cookie } });
+  assert.equal(res.status, 200, await res.text());
+  assert.equal(received.length, 1);
+  assert.equal(received[0].headers.title, 'Test alert');
+  assert.equal(received[0].headers.email, 'james@dibiasiorealty.com');
+});

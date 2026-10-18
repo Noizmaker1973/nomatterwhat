@@ -420,6 +420,8 @@
         ${Object.values(FORMS).map((f) => { const url = location.origin + '/apply?f=' + f.id + '&a=' + me.id; return '<div class="copy-row" style="margin-bottom:8px"><input class="input" readonly value="' + esc(url) + '"><button class="btn secondary small" data-copy="' + esc(url) + '">Copy ' + esc(f.short) + '</button></div>'; }).join('')}
         <div class="copy-row"><input class="input" readonly value="${esc(location.origin + '/?a=' + me.id)}"><button class="btn secondary small" data-copy="${esc(location.origin + '/?a=' + me.id)}">Copy chooser</button></div>
       </div>
+      <div class="card"><h2>Alerts</h2><p class="muted small">New applications and document uploads send you an alert. Use this to check it's working.</p>
+        <button class="btn secondary" id="test-alert">Send test alert</button> <span class="small" id="test-alert-result"></span></div>
       <div class="card"><h2>Agents</h2>
         <table class="deals"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th></th></tr></thead><tbody>
         ${agents.map((a) => '<tr><td data-l="Name">' + esc(a.name) + '</td><td data-l="Email">' + esc(a.email) + '</td><td data-l="Phone">' + esc(a.phone) + '</td><td data-l="Role">' + esc(a.role) + '</td><td>' +
@@ -435,6 +437,16 @@
         <div class="fld half"><label class="lbl" for="a-role">Role</label><select id="a-role"><option value="agent">Agent</option><option value="admin">Admin (can add agents & delete deals)</option></select></div>
         <div class="fld"><button class="btn">Add agent</button></div></form></div>` : ''}`;
     $app.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => copy(b.dataset.copy));
+    document.getElementById('test-alert').onclick = async (e) => {
+      const out = document.getElementById('test-alert-result');
+      e.target.disabled = true;
+      out.textContent = 'Sending…';
+      try {
+        await api('/api/alerts/test', { method: 'POST' });
+        out.textContent = 'Sent! Check your phone and email.';
+      } catch (err) { out.textContent = err.message; }
+      e.target.disabled = false;
+    };
     $app.querySelectorAll('[data-edit]').forEach((b) => b.onclick = async () => {
       const agent = agents.find((x) => x.id === b.dataset.edit);
       const name = prompt('Name (shown to applicants and on emails):', agent.name);

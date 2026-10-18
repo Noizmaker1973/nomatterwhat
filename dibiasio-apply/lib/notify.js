@@ -7,6 +7,8 @@
 // logged (unless NTFY_TOPIC is set, below) and the dashboard falls back to
 // opening the agent's own mail app.
 // Alerts never include applicant personal data — just a link to the dashboard.
+const https = require('https');
+const http = require('http');
 const nodemailer = require('nodemailer');
 
 function createTransport() {
@@ -35,11 +37,33 @@ const FALLBACK = process.env.NOTIFY_EMAIL || '';
 const NTFY_SERVER = (process.env.NTFY_SERVER || 'https://ntfy.sh').replace(/\/$/, '');
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
 
+// Plain https request forced to IPv4 with a timeout: some hosts can't reach
+// ntfy.sh over IPv6, which made fetch() fail with an unhelpful "fetch failed".
+function post(target, headers, body) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(target);
+    const req = (u.protocol === 'http:' ? http : https).request(u, { method: 'POST', headers: { ...headers, 'Content-Length': Buffer.byteLength(body) }, family: 4, timeout: 10000 }, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => (res.statusCode < 300 ? resolve(data) : reject(new Error('ntfy responded ' + res.statusCode + ' ' + data.slice(0, 200)))));
+    });
+    req.on('timeout', () => req.destroy(new Error('timed out connecting to ' + u.host)));
+    req.on('error', (e) => reject(new Error('could not reach ' + u.host + ': ' + (e.code || e.message))));
+    req.end(body);
+  });
+}
+
 async function push({ title, message, url, email }) {
-  const headers = { Title: title, Click: url, Tags: 'house', Priority: 'high' };
+  const headers = { Title: title, Click: url, Tags: 'house', Priority: 'high', 'Content-Type': 'text/plain; charset=utf-8' };
   if (email) headers.Email = email;
-  const res = await fetch(NTFY_SERVER + '/' + encodeURIComponent(NTFY_TOPIC), { method: 'POST', headers, body: message });
-  if (!res.ok) throw new Error('ntfy responded ' + res.status + ' ' + (await res.text()).slice(0, 200));
+  const target = NTFY_SERVER + '/' + encodeURIComponent(NTFY_TOPIC);
+  try {
+    await post(target, headers, message);
+  } catch (e) {
+    if (/ntfy responded 4/.test(e.message)) throw e; // a rejected request won't succeed on retry
+    await new Promise((r) => setTimeout(r, 2000));
+    await post(target, headers, message);
+  }
 }
 
 async function alert(to, { subject, text, title, message, url }) {
@@ -63,6 +87,14 @@ const where = (deal) => [deal.sheet.address, deal.sheet.unit && 'Unit ' + deal.s
 
 module.exports = {
   enabled: Boolean(transport),
+  alertsConfigured: Boolean(transport || NTFY_TOPIC),
+  testAlert: (agent, dashboardUrl) => alert(agent.email, {
+    subject: 'Test alert from your application portal',
+    text: 'Alerts are working. New applications will show up like this.\n\n' + dashboardUrl,
+    title: 'Test alert',
+    message: 'Alerts are working. New applications will show up like this.',
+    url: dashboardUrl,
+  }),
   // Sent from the company address, shown as "Agent Name | Dibiasio Realty", replies to the agent.
   sendAs: (agent, { to, subject, text }) => transport.sendMail({
     from: { name: agent.name + ' | ' + FROM_NAME, address: FROM_ADDRESS },

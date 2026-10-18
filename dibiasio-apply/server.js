@@ -199,7 +199,7 @@ app.post('/api/public/applications', rateLimit(15, 3600e3), upload.any(), async 
   log(deal, appRecord.summary.name, 'Submitted application with ' + appRecord.files.length + ' document(s)');
   store.saveDeal(deal);
 
-  notify.newApplication({ deal, appRecord, agent: deal.agentId && auth.get(deal.agentId), form, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch((e) => console.error('[notify]', e.message));
+  notify.newApplication({ deal, appRecord, agent: deal.agentId && auth.get(deal.agentId), form, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch((e) => console.error('[notify] alert failed:', e.message));
 
   res.json({
     ok: true,
@@ -233,7 +233,7 @@ app.post('/api/public/status/:token/files', rateLimit(30, 3600e3), upload.any(),
   if (deal) {
     log(deal, a.summary.name, 'Uploaded ' + added.length + ' more document(s)');
     store.saveDeal(deal);
-    notify.moreDocuments({ deal, appRecord: a, agent: deal.agentId && auth.get(deal.agentId), count: added.length, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch((e) => console.error('[notify]', e.message));
+    notify.moreDocuments({ deal, appRecord: a, agent: deal.agentId && auth.get(deal.agentId), count: added.length, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch((e) => console.error('[notify] alert failed:', e.message));
   }
   res.json({ ok: true, added: added.length });
 });
@@ -277,7 +277,18 @@ app.delete('/api/agents/:id', auth.requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.use(['/api/deals', '/api/apps', '/api/files', '/api/email'], auth.require);
+app.use(['/api/deals', '/api/apps', '/api/files', '/api/email', '/api/alerts'], auth.require);
+
+app.post('/api/alerts/test', rateLimit(10, 3600e3), async (req, res) => {
+  if (!notify.alertsConfigured) return res.status(400).json({ error: 'No alert channel is set up (SMTP or NTFY_TOPIC).' });
+  try {
+    await notify.testAlert(req.agent, PUBLIC_URL + '/agent');
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[notify] test alert failed:', e.message);
+    res.status(502).json({ error: 'The alert could not be sent: ' + e.message });
+  }
+});
 
 // Agents email applicants straight from the dashboard. Mail goes out from the
 // company mailbox; replies go to the agent who sent it.

@@ -160,7 +160,7 @@
       documents: [
         DOC_ID,
         { id: 'pay_stubs', label: 'Last three pay stubs', help: 'Or copies of your last three pay checks.', req: true },
-        { id: 'tax_return', label: 'Most recent tax return (Form 1040)', req: true },
+        { id: 'tax_return', label: 'Most recent tax return (Form 1040)' },
         { id: 'other_income', label: 'Proof of other income', help: 'Award letters, voucher paperwork, etc. Note: bank statements are not accepted as proof of income.' },
         { id: 'reference_letter', label: 'Personal reference letter', help: 'Optional.' },
       ],
