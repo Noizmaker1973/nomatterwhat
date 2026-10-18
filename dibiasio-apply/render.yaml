@@ -39,5 +39,7 @@ services:
         sync: false
       - key: MAIL_FROM_ADDRESS
         sync: false
+      - key: NTFY_TOPIC
+        sync: false
       - key: NOTIFY_EMAIL
         sync: false

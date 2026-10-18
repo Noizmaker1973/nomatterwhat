@@ -48,6 +48,11 @@ from the company mailbox (`MAIL_FROM_ADDRESS`, e.g. james@dibiasiorealty.com):
   requests, free-form messages). These go out as "Agent Name | Dibiasio Realty" and replies go to
   the agent's own address. Each one is logged on the deal.
 
+**Alerts without SMTP:** set `NTFY_TOPIC` to a long random name. Each new application or
+document upload then sends a notification to the free ntfy phone app (subscribe to that
+topic), and ntfy forwards it by email to the assigned agent (and `NOTIFY_EMAIL`). Only the
+application type, property and a dashboard link go through ntfy, never applicant details.
+
 Without SMTP, the Email buttons open a pre-filled draft in the agent's own mail app, or in Gmail
 in the browser when `EMAIL_COMPOSE=gmail` (signed in as the agent's address), so mail still comes from their own account.
 
