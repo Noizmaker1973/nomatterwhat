@@ -237,7 +237,7 @@ app.post('/api/public/status/:token/files', rateLimit(30, 3600e3), upload.any(),
 });
 
 /* ------------------------------ agent API -------------------------------- */
-app.get('/api/me', (req, res) => res.json({ agent: auth.publicAgent(auth.current(req)), needsSetup: auth.needsSetup() }));
+app.get('/api/me', (req, res) => res.json({ agent: auth.publicAgent(auth.current(req)), needsSetup: auth.needsSetup(), temporaryStorage: store.temporaryStorage }));
 
 app.post('/api/setup', rateLimit(5, 900e3), (req, res) => {
   if (!auth.needsSetup()) return res.status(403).json({ error: 'Setup has already been completed.' });

@@ -49,6 +49,7 @@
     if (!me) {
       const r = await fetch('/api/me').then((x) => x.json());
       me = r.agent;
+      document.getElementById('storage-warn').classList.toggle('hidden', !r.temporaryStorage);
       if (!me) return renderLogin(r.needsSetup);
       config = await fetch('/api/public/config').then((x) => x.json());
       agents = await api('/api/agents').catch(() => []);

@@ -5,7 +5,14 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
+// PERSISTENT_DISK names a mounted disk (e.g. Render's /var/data). Until it is
+// mounted we fall back to a local folder, which hosts like Render wipe on every
+// deploy, and flag storage as temporary so agents see a warning.
+const LOCAL_DIR = path.join(__dirname, '..', 'data');
+const DISK = process.env.PERSISTENT_DISK;
+const diskMissing = Boolean(DISK) && !fs.existsSync(DISK);
+if (diskMissing) console.warn('[store] Persistent disk %s is not mounted; using temporary storage at %s.', DISK, LOCAL_DIR);
+const DATA_DIR = path.resolve(DISK && !diskMissing ? DISK : process.env.DATA_DIR || LOCAL_DIR);
 const dirs = {
   deals: path.join(DATA_DIR, 'deals'),
   apps: path.join(DATA_DIR, 'apps'),
@@ -64,6 +71,7 @@ const apps = readAll(dirs.apps);
 
 const store = {
   DATA_DIR,
+  temporaryStorage: diskMissing,
   id,
   secret,
 

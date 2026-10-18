@@ -17,7 +17,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATA_DIR
+      - key: PERSISTENT_DISK
         value: /var/data
       - key: DATA_KEY
         sync: false
