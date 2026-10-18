@@ -35,13 +35,18 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '1mb' }));
 
-const page = (name) => (req, res) => res.sendFile(path.join(__dirname, 'public', name + '.html'));
+const page = (name) => (req, res) => res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, 'public', name + '.html'));
 app.get('/', page('index'));
 app.get('/apply', page('apply'));
 app.get('/status', page('status'));
 app.get('/agent', page('agent'));
 app.get('/agent/print', page('print'));
-app.use(express.static(path.join(__dirname, 'public'), { index: false, maxAge: '1h' }));
+// Scripts and styles revalidate on every load so agents and applicants get
+// updates immediately; images can be cached.
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: false,
+  setHeaders: (res, file) => res.set('Cache-Control', /\.(png|jpe?g|svg|ico)$/.test(file) ? 'public, max-age=86400' : 'no-cache'),
+}));
 
 /* ----------------------------- helpers ---------------------------------- */
 const ALLOWED_TYPES = /^(application\/pdf|image\/(jpeg|png|heic|heif|webp|gif)|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/;
