@@ -41,6 +41,10 @@ A comprehensive web application designed to support individuals in recovery from
 - Secure token-based API authentication
 - **Files**: `server/src/routes/auth.js`, `server/src/middleware/auth.js`
 
+## Separate Project: `fx-desk/`
+
+Unrelated to the recovery app. A self-contained, dependency-free Node project for paper-only FX research: spot signal engine, CME FX options analytics, and a fundamentals filter. No order execution. See `fx-desk/README.md`; run tests with `cd fx-desk && npm test`.
+
 ## Architecture
 
 ### Backend (Node.js + Express)

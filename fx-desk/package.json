@@ -1,0 +1,18 @@
+{
+  "name": "fx-desk",
+  "version": "0.1.0",
+  "description": "Paper-only FX spot signal engine, CME FX options analytics, and fundamentals filter",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "bin": { "fx-desk": "src/cli.js" },
+  "scripts": {
+    "scan": "node src/cli.js scan",
+    "score": "node src/cli.js score",
+    "report": "node src/cli.js report",
+    "backtest": "node src/cli.js backtest",
+    "options": "node src/cli.js options",
+    "fundamentals": "node src/cli.js fundamentals",
+    "test": "node --test test/*.test.js"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "_note": "Central bank policy rates in percent. PLACEHOLDER VALUES - update from each central bank before trusting carry output, then set asOf to today's date (YYYY-MM-DD).",
+  "asOf": null,
+  "rates": {
+    "USD": 4.0,
+    "EUR": 2.0,
+    "GBP": 4.0,
+    "JPY": 0.5,
+    "CHF": 0.0,
+    "AUD": 3.6,
+    "CAD": 2.5,
+    "NZD": 3.0
+  }
+}
