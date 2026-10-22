@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // fx-desk: paper-only. There is no order-placement code anywhere in this project.
-import { loadConfig, loadRates } from './config.js';
+import { loadConfig, loadRates, loadRatesHistory } from './config.js';
 import { getCandles } from './data/index.js';
 import { detectLatest } from './signals/breakout.js';
 import { scoreSignal, summarize, withFee } from './signals/score.js';
 import { backtestPair } from './signals/backtest.js';
+import { momentumBacktest, momentumSignalAt, combine, stats, splitAt } from './signals/momentum.js';
 import { roundTripCostPct } from './costs.js';
 import { appendJsonl, readJsonl } from './journal.js';
 import { makeFilter } from './fundamentals/filter.js';
-import { carry } from './fundamentals/rates.js';
+import { carry, parseRatesHistory } from './fundamentals/rates.js';
 import { fetchCot, pairPositioning } from './fundamentals/cot.js';
 import { fetchCalendar, loadCalendar } from './fundamentals/calendar.js';
 import { CONTRACTS, parsePair } from './pairs.js';
@@ -298,6 +299,91 @@ async function cmdOptions(args, config) {
   console.log('\nModel output for paper trading; not a recommendation. Verify quotes, margin and contract specs with your broker.');
 }
 
+
+function printMomStats(label, st) {
+  if (!st || st.n < 20) return console.log(`${label.padEnd(24)} not enough data`);
+  console.log(
+    `${label.padEnd(24)} ${st.years.toFixed(1).padStart(4)}y  ret/yr=${pct(st.annReturnPct, 2).padStart(7)}  vol=${pct(st.annVolPct, 1).padStart(6)}  ` +
+      `Sharpe=${st.sharpe.toFixed(2).padStart(5)}  t=${st.tStat.toFixed(2).padStart(5)}  maxDD=${pct(st.maxDrawdownPct, 1).padStart(7)}  ` +
+      `turnover=${st.turnoverPerYear.toFixed(1)}x/yr  cost=${pct(st.costDragPctPerYear, 3)}/yr`,
+  );
+}
+
+async function cmdMomentum(args, config) {
+  const sub = args._[1] ?? 'backtest';
+  const p = config.momentum;
+  const ratesHistory = args['no-carry'] ? null : loadRatesHistory(parseRatesHistory);
+  const pairs = pairsFrom(args, config);
+  const daily = {};
+  for (const pair of pairs) {
+    try {
+      daily[pair] = await getCandles(pair, '1d', config, { ...dataOpts(args), days: undefined });
+    } catch (e) {
+      console.error(`${pair}: ${e.message}`);
+    }
+  }
+
+  if (sub === 'now') {
+    console.log(`Momentum targets (position as a multiple of equity, vol target ${p.targetVol * 100}%/pair):`);
+    for (const [pair, candles] of Object.entries(daily)) {
+      const sig = momentumSignalAt(candles, candles.length - 1, p, ratesHistory, pair);
+      if (!sig) {
+        console.log(`${pair}: not enough history`);
+        continue;
+      }
+      const rec = { pair, date: new Date(sig.t).toISOString().slice(0, 10), price: sig.price, signal: sig.signal, vol: sig.vol, position: sig.position, carryDiff: sig.carryDiff, loggedAt: new Date().toISOString(), paper: true };
+      if (!args['no-log']) appendJsonl('momentum.jsonl', rec);
+      const side = sig.position > 0 ? 'LONG ' : sig.position < 0 ? 'SHORT' : 'FLAT ';
+      console.log(`${pair}: ${side} ${sig.position.toFixed(2)}x  (lookback signs ${sig.parts.map((x) => (x > 0 ? '+' : x < 0 ? '-' : '0')).join('')}, vol ${(sig.vol * 100).toFixed(1)}%, close ${rec.date})`);
+    }
+    return;
+  }
+
+  if (sub === 'paper') {
+    const log = readJsonl('momentum.jsonl');
+    if (!log.length) return console.log('No snapshots yet. Run `momentum now` on each rebalance day.');
+    let total = 0;
+    for (const pair of [...new Set(log.map((r) => r.pair))]) {
+      const snaps = log.filter((r) => r.pair === pair);
+      const candles = daily[pair];
+      if (!candles) continue;
+      let pnl = 0;
+      for (let k = 0; k < snaps.length; k++) {
+        const from = snaps[k];
+        const toPrice = k + 1 < snaps.length ? snaps[k + 1].price : candles.at(-1).c;
+        const cost = roundTripCostPct(pair, from.price, config) / 2 / 100;
+        const prev = k ? snaps[k - 1].position : 0;
+        pnl += from.position * (toPrice / from.price - 1) - Math.abs(from.position - prev) * cost;
+      }
+      total += pnl;
+      console.log(`${pair}: ${snaps.length} snapshot(s), paper return ${pct(pnl * 100, 2)} on equity`);
+    }
+    return console.log(`Equal-weight paper return: ${pct((total / Object.keys(daily).length) * 100, 2)}`);
+  }
+
+  console.log(`Momentum backtest, daily, source=${args.source ?? config.data.source}`);
+  console.log(`Rule: lookbacks ${p.lookbacks.join('/')}d, vol ${p.volWindow}d -> ${p.targetVol * 100}% target, max ${p.maxLeverage}x, rebalance every ${p.rebalanceDays}d, lag ${p.executionLagDays}d, carry ${ratesHistory && p.carryWeight ? `weight ${p.carryWeight}` : ratesHistory ? 'accrued only' : 'NOT included (no config/rates-history.csv)'}`);
+  console.log(`In-sample < ${p.outOfSampleStart} <= out-of-sample. Judge on in-sample; look at out-of-sample once.\n`);
+  const byFee = { gross: {}, spread: {} };
+  for (const fee of config.backtest.compareFeePct) byFee[`${fee}%`] = {};
+  for (const [pair, candles] of Object.entries(daily)) {
+    const spread = roundTripCostPct(pair, candles.at(-1).c, config);
+    byFee.gross[pair] = momentumBacktest(pair, candles, p, { costPct: 0, ratesHistory });
+    byFee.spread[pair] = momentumBacktest(pair, candles, p, { costPct: spread, ratesHistory });
+    for (const fee of config.backtest.compareFeePct) byFee[`${fee}%`][pair] = momentumBacktest(pair, candles, p, { costPct: fee, ratesHistory });
+    const { inSample, outOfSample } = splitAt(byFee.spread[pair], p.outOfSampleStart);
+    printMomStats(`${pair} in-sample`, stats(inSample));
+    printMomStats(`${pair} out-of-sample`, stats(outOfSample));
+  }
+  for (const [half, label] of [['inSample', 'IN-SAMPLE'], ['outOfSample', 'OUT-OF-SAMPLE']]) {
+    console.log(`\nEqual-weight portfolio, ${label}:`);
+    printMomStats('gross (no cost)', stats(splitAt(combine(byFee.gross), p.outOfSampleStart)[half], 'gross'));
+    printMomStats('real FX spread', stats(splitAt(combine(byFee.spread), p.outOfSampleStart)[half]));
+    for (const fee of config.backtest.compareFeePct) printMomStats(`${fee}% round trip`, stats(splitAt(combine(byFee[`${fee}%`]), p.outOfSampleStart)[half]));
+  }
+  console.log('\nRough guide: |t| < 2 is indistinguishable from luck. Spot returns exclude interest unless a rate history is supplied.');
+}
+
 const HELP = `fx-desk (paper only)
 
   scan       [--pairs EURUSD,GBPUSD] [--tf 1h] [--source yahoo|oanda|csv|synthetic] [--no-filter]
@@ -309,13 +395,16 @@ const HELP = `fx-desk (paper only)
   options paper-open (same args; --iv required)            log a paper strangle
   options score                                            settle expired paper strangles
   options log-iv     --pair EURUSD --iv 7.5 [--date YYYY-MM-DD]   build IV rank history
+  momentum backtest  [--pairs ..] [--source ..] [--no-carry]  daily trend-following, in- vs out-of-sample
+  momentum now       current target positions (logs a paper snapshot; --no-log to skip)
+  momentum paper     P&L of logged snapshots
 `;
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   const cmd = args._[0];
-  const cmds = { scan: cmdScan, score: cmdScore, report: cmdReport, backtest: cmdBacktest, fundamentals: cmdFundamentals, options: cmdOptions };
+  const cmds = { scan: cmdScan, score: cmdScore, report: cmdReport, backtest: cmdBacktest, fundamentals: cmdFundamentals, options: cmdOptions, momentum: cmdMomentum };
   if (!cmds[cmd]) return console.log(HELP);
   await cmds[cmd](args, config);
 }

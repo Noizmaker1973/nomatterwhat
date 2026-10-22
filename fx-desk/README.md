@@ -54,6 +54,27 @@ node src/cli.js report
 - Signals the fundamentals filter blocks are **still logged and scored** with `blocked: true`. The report then shows whether the filter is earning its keep.
 - A unit test checks the detector for lookahead: appending future bars must not change a past signal.
 
+## 1b. Momentum (daily trend-following)
+
+The 1h/4h/1d breakout tests showed no edge before costs. Time-series momentum is the better-documented FX effect, so it runs on the same data and cost model, scored as a daily return series.
+
+```bash
+node src/cli.js momentum backtest --source yahoo   # about 10y of daily data; in-sample vs out-of-sample
+node src/cli.js momentum now                       # current target positions; logs a paper snapshot
+node src/cli.js momentum paper                     # P&L of the logged snapshots
+```
+
+**The rule is fixed in `config.momentum` before any results are seen:**
+
+- **Signal:** the average of sign(return) over the 63-, 126- and 252-day lookbacks, in the range -1 to +1.
+- **Sizing:** signal × 10% ÷ 60-day realized vol, capped at ±3× equity per pair.
+- **Rebalancing:** every 5 trading days. Trades happen one close after the signal (`executionLagDays`).
+- **Cost:** half the round-trip spread for each unit the position changes. Gross, real spread and 0.3% are all shown.
+- **Split:** in-sample before `outOfSampleStart` (2023-01-01), out-of-sample after. Make decisions on in-sample only. Look at out-of-sample once. If you change the rule after seeing it, it's no longer out-of-sample.
+- **t-stat:** Sharpe × √years. |t| < 2 is indistinguishable from luck.
+
+**Carry and interest.** Yahoo prices are spot, so the backtest **leaves out interest earned or paid on the position**. For a pair like USDJPY that's several percent a year. To include it, add `config/rates-history.csv` with columns `date,USD,EUR,GBP,JPY,CHF,AUD,CAD`. Use one row per rate change, and each row holds until the next. Only use rates you've checked against the central banks. With that file present, interest is accrued daily. Setting `carryWeight` (e.g. 0.5) also tilts the signal toward the higher-yielding side. `--no-carry` turns it all off.
+
 ## 2. Options analytics (CME FX futures options)
 
 US retail can't trade OTC FX options. Strangles on currencies go through CME options on FX futures, which means a futures account (IBKR, tastytrade, NinjaTrader, …). Spot pairs map to futures as follows:
@@ -95,7 +116,7 @@ config/default.json   strategy, spreads, options and filter settings
 config/rates.json     policy rates (update these)
 data/                 gitignored: signals.jsonl, outcomes.jsonl, strangles.jsonl,
                       strangle_outcomes.jsonl, iv/<future>.jsonl, cot/, calendar.json
-src/signals/          detector, scoring, walk-forward backtest
+src/signals/          breakout detector, scoring, walk-forward backtest, momentum
 src/options/          black76, vol, strangle, margin, stress, paper
 src/fundamentals/     rates, cot, calendar, filter
 ```

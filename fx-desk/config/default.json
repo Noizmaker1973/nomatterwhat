@@ -5,12 +5,24 @@
     "oandaEnv": "practice"
   },
   "pairs": {
-    "EURUSD": { "spreadPips": 0.8 },
-    "GBPUSD": { "spreadPips": 1.2 },
-    "USDJPY": { "spreadPips": 1.0 },
-    "AUDUSD": { "spreadPips": 1.0 },
-    "USDCAD": { "spreadPips": 1.5 },
-    "USDCHF": { "spreadPips": 1.5 }
+    "EURUSD": {
+      "spreadPips": 0.8
+    },
+    "GBPUSD": {
+      "spreadPips": 1.2
+    },
+    "USDJPY": {
+      "spreadPips": 1.0
+    },
+    "AUDUSD": {
+      "spreadPips": 1.0
+    },
+    "USDCAD": {
+      "spreadPips": 1.5
+    },
+    "USDCHF": {
+      "spreadPips": 1.5
+    }
   },
   "costs": {
     "slippagePips": 0.2,
@@ -32,7 +44,9 @@
     "trendEma": 0
   },
   "backtest": {
-    "compareFeePct": [0.3]
+    "compareFeePct": [
+      0.3
+    ]
   },
   "fundamentals": {
     "calendarBlackoutMinutes": 60,
@@ -54,10 +68,37 @@
     "gapIvMultiplier": 2.0,
     "stressIvMultiplier": 1.5,
     "gapScenarios": [
-      { "name": "Generic 3% gap", "movePct": 3 },
-      { "name": "Generic 5% gap", "movePct": 5 },
-      { "name": "Brexit vote, Jun 2016 (GBP ~-8%)", "movePct": 8 },
-      { "name": "SNB unpeg, Jan 2015 (CHF ~+30% vs EUR)", "movePct": 30 }
+      {
+        "name": "Generic 3% gap",
+        "movePct": 3
+      },
+      {
+        "name": "Generic 5% gap",
+        "movePct": 5
+      },
+      {
+        "name": "Brexit vote, Jun 2016 (GBP ~-8%)",
+        "movePct": 8
+      },
+      {
+        "name": "SNB unpeg, Jan 2015 (CHF ~+30% vs EUR)",
+        "movePct": 30
+      }
     ]
+  },
+  "momentum": {
+    "_rule": "Fixed before testing. Judge on inSample only; look at outOfSample once.",
+    "lookbacks": [
+      63,
+      126,
+      252
+    ],
+    "volWindow": 60,
+    "targetVol": 0.1,
+    "maxLeverage": 3,
+    "rebalanceDays": 5,
+    "executionLagDays": 1,
+    "carryWeight": 0,
+    "outOfSampleStart": "2023-01-01"
   }
 }

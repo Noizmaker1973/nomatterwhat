@@ -28,3 +28,9 @@ export function loadConfig() {
 export function loadRates() {
   return readJson(join(ROOT, 'config', 'rates.json'));
 }
+
+// Returns null when config/rates-history.csv is absent; carry is then left out of momentum.
+export function loadRatesHistory(parse) {
+  const p = join(ROOT, 'config', 'rates-history.csv');
+  return existsSync(p) ? parse(readFileSync(p, 'utf8')) : null;
+}
