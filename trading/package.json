@@ -1,0 +1,22 @@
+{
+  "name": "crypto-signal-trader",
+  "version": "1.0.0",
+  "description": "Technical-analysis signal engine and trading platform for BTC, ETH, SOL and BNB",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "demo": "DATA_SOURCE=demo node src/server.js",
+    "signals": "node src/cli.js signals",
+    "backtest": "node src/backtest.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ccxt": "^4.5.89",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.3"
+  }
+}
