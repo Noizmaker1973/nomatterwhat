@@ -30,29 +30,66 @@ function createApp(engine) {
   const wrap = (fn) => (req, res) =>
     Promise.resolve(fn(req, res)).catch((err) => res.status(400).json({ error: err.message }));
 
-  app.get('/api/status', (req, res) => {
-    res.json({
-      mode: engine.broker.mode,
-      liveRequestedButUnconfirmed: config.liveRequestedButUnconfirmed,
-      exchange: config.exchange,
-      dataSource: engine.marketData.name,
-      timeframe: config.timeframe,
-      symbols: config.symbols,
-      quote: config.quote,
-      autoTrade: engine.autoTrade,
-      enforceStops: config.enforceStops,
-      risk: config.risk,
-      strategy: config.strategy,
-      guard: engine.guardState,
-      lastScanAt: engine.lastScanAt,
-      scanIntervalSec: config.scanIntervalSec,
-      errors: engine.errors,
-      tokenRequired: Boolean(config.dashboardToken),
-      notifications: engine.notifier.enabled,
-    });
+  const status = () => ({
+    mode: engine.broker.mode,
+    liveRequestedButUnconfirmed: config.liveRequestedButUnconfirmed,
+    exchange: config.exchange,
+    dataSource: engine.marketData.name,
+    timeframe: config.timeframe,
+    symbols: config.symbols,
+    quote: config.quote,
+    autoTrade: engine.autoTrade,
+    enforceStops: config.enforceStops,
+    risk: config.risk,
+    strategy: config.strategy,
+    guard: engine.guardState,
+    lastScanAt: engine.lastScanAt,
+    scanIntervalSec: config.scanIntervalSec,
+    errors: engine.errors,
+    tokenRequired: Boolean(config.dashboardToken),
+    notifications: engine.notifier.enabled,
+    priceFeed: engine.priceFeed,
   });
 
-  app.get('/api/signals', (req, res) => res.json(config.symbols.map((s) => engine.signals[s] || { symbol: s, signal: 'LOADING' })));
+  app.get('/api/status', (req, res) => res.json(status()));
+
+  app.get('/api/signals', (req, res) => res.json(engine.snapshot().signals));
+  app.get('/api/snapshot', (req, res) => res.json({ ...engine.snapshot(), status: status() }));
+
+  // Server-Sent Events: pushes a fresh snapshot to the dashboard on every
+  // price update (at most a few times per second), and alerts/trades as
+  // they happen.
+  app.get('/api/stream', (req, res) => {
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders();
+    const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+    let pending = null;
+    const pushSnapshot = () => {
+      if (pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        send('snapshot', { ...engine.snapshot(), status: status() });
+      }, 250);
+    };
+    const onAlert = (alert) => send('alert', alert);
+    const onTrade = (trade) => send('trade', trade);
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 20000);
+
+    send('snapshot', { ...engine.snapshot(), status: status() });
+    engine.on('tick', pushSnapshot);
+    engine.on('scan', pushSnapshot);
+    engine.on('alert', onAlert);
+    engine.on('trade', onTrade);
+    req.on('close', () => {
+      clearTimeout(pending);
+      clearInterval(heartbeat);
+      engine.off('tick', pushSnapshot);
+      engine.off('scan', pushSnapshot);
+      engine.off('alert', onAlert);
+      engine.off('trade', onTrade);
+    });
+  });
   app.get('/api/portfolio', wrap(async (req, res) => res.json(await engine.getPortfolio())));
   app.get('/api/trades', (req, res) => res.json(engine.trades));
   app.get('/api/alerts', (req, res) => res.json(engine.alerts));
@@ -102,6 +139,7 @@ async function main() {
     broker,
     notifier: createNotifier(config.notify),
   });
+  engine.setMaxListeners(200); // one set of listeners per open dashboard tab
 
   if (config.liveRequestedButUnconfirmed) {
     engine.addAlert('info', 'TRADING_MODE=live ignored: set CONFIRM_LIVE_TRADING=yes to trade real money. Running in PAPER mode.');

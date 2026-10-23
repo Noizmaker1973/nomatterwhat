@@ -55,6 +55,8 @@ const config = {
   port: num(env.PORT, 4000),
   host: env.HOST || '127.0.0.1',
   scanIntervalSec: Math.max(10, num(env.SCAN_INTERVAL_SEC, 60)),
+  // Only used when the exchange's WebSocket price stream is unavailable.
+  pricePollSec: Math.max(1, num(env.PRICE_POLL_SEC, 2)),
   dashboardToken: env.DASHBOARD_TOKEN || '',
 
   notify: {

@@ -1,5 +1,5 @@
 const $ = (sel, el = document) => el.querySelector(sel);
-const state = { status: null, cards: {}, lastScanAt: null };
+const state = { status: null, cards: {}, candles: {}, prices: {}, lastScanAt: null, alerts: [], lastSnapshotAt: 0 };
 
 // ---------------------------------------------------------------- helpers
 
@@ -40,8 +40,7 @@ const post = (path, data) => api(path, { method: 'POST', body: JSON.stringify(da
 
 // ----------------------------------------------------------------- status
 
-async function loadStatus() {
-  const s = await api('/status');
+function renderStatus(s) {
   state.status = s;
   const badge = $('#modeBadge');
   badge.textContent = s.mode === 'live' ? 'LIVE TRADING' : 'PAPER';
@@ -50,7 +49,7 @@ async function loadStatus() {
   $('#resetBtn').classList.toggle('hidden', s.mode !== 'paper');
   $('#meta').textContent =
     `${s.exchange} · data: ${s.dataSource} · ${s.timeframe} candles · ` +
-    `last scan ${s.lastScanAt ? time(s.lastScanAt) : '—'} (every ${s.scanIntervalSec}s)`;
+    `last analysis ${s.lastScanAt ? time(s.lastScanAt) : '—'}`;
 
   const banner = $('#banner');
   const messages = [];
@@ -59,7 +58,7 @@ async function loadStatus() {
   if (s.guard?.halted) messages.push(`Daily loss limit reached (${fmt(s.guard.drawdownPct, 2)}% down today). New buys are paused.`);
   const errs = Object.entries(s.errors || {});
   if (errs.length) messages.push(`Data errors: ${errs.map(([sym, e]) => `${sym}: ${e}`).join(' | ')}`);
-  if (s.dataSource === 'demo') messages.push('DEMO DATA: prices are synthetic. Set DATA_SOURCE=exchange for real markets.');
+  if (s.dataSource === 'demo') messages.push('DEMO DATA: prices are synthetic. Run npm start for real markets.');
   banner.textContent = messages.join('  •  ');
   banner.classList.toggle('hidden', messages.length === 0);
   banner.classList.toggle('danger', s.mode === 'live' || s.guard?.halted);
@@ -86,12 +85,13 @@ function renderSignals(signals) {
   for (const s of signals) {
     const card = getCard(s.symbol);
     card.className = `card ${s.signal}`;
-    $('.price', card).textContent = s.livePrice ? fmt(s.livePrice) : '…';
+    renderPrice(card, s.symbol, s.livePrice);
     const badge = $('.signal', card);
     badge.textContent = s.signal;
     badge.className = `signal ${s.signal}`;
 
     renderGauge(card, s);
+    renderSuggestion(card, s);
 
     const i = s.indicators || {};
     const stats = $('.stats', card);
@@ -129,9 +129,15 @@ function renderGauge(card, s) {
   $('.zone.buy', card).style.left = `${buyPos}%`;
   $('.tick.sell', card).style.left = `${sellPos}%`;
   $('.tick.buy', card).style.left = `${buyPos}%`;
-  const marker = $('.marker', card);
+  const marker = $('.marker.closed', card);
   marker.style.left = `${gaugePos(score)}%`;
-  marker.className = `marker ${s.signal}`;
+  marker.className = `marker closed ${s.signal}`;
+  // Hollow ring = provisional score including the candle that is still forming.
+  const live = s.live;
+  const liveMarker = $('.marker.live', card);
+  const showLive = live && live.score !== score;
+  liveMarker.classList.toggle('hidden', !showLive);
+  if (showLive) liveMarker.style.left = `${gaugePos(live.score)}%`;
 
   // Labels sit on the outer side of their trigger line so they never overlap.
   const sellLbl = $('.lbl.sell', card);
@@ -151,16 +157,81 @@ function renderGauge(card, s) {
   else distance = `${round(buy - score)} pts to BUY · ${round(score - sell)} pts to SELL`;
   $('.score-label', card).textContent =
     `Score ${score} · ${distance} · confidence ${Math.round((s.confidence || 0) * 100)}%`;
+  $('.live-label', card).textContent = showLive
+    ? `Live: ${live.score} (candle still forming)`
+    : '';
 }
 
-async function drawChart(symbol) {
-  const canvas = $('.chart', getCard(symbol));
-  let candles;
-  try {
-    candles = await api(`/candles?symbol=${encodeURIComponent(symbol)}&limit=120`);
-  } catch {
-    return;
+function renderPrice(card, symbol, price) {
+  const node = $('.price', card);
+  node.textContent = price ? fmt(price) : '…';
+  const prev = state.prices[symbol];
+  if (prev && price && price !== prev) {
+    node.classList.remove('up', 'down');
+    void node.offsetWidth; // restart the flash animation
+    node.classList.add(price > prev ? 'up' : 'down');
   }
+  state.prices[symbol] = price;
+}
+
+function renderSuggestion(card, s) {
+  const box = $('.suggest', card);
+  const head = $('.suggest-head', box);
+  const body = $('.suggest-body', box);
+  const btn = $('.suggest-btn', box);
+  const g = s.suggestion;
+  const coin = s.symbol.split('/')[0];
+  const quote = state.status?.quote || '';
+  const lines = [];
+  box.className = `suggest ${g ? g.action : 'WAIT'}`;
+  btn.className = 'btn small suggest-btn hidden'; // BUY/SELL below make it visible
+  if (!g) {
+    head.textContent = 'Suggested trade: waiting for data';
+  } else if (g.action === 'BUY') {
+    head.textContent = `Suggested: BUY ${money(g.quoteAmount)} ${quote} of ${coin}`;
+    lines.push(
+      `≈ ${fmt(g.baseAmount, 6)} ${coin} · ${fmt(g.equityPct, 1)}% of account`,
+      `Stop ${fmt(g.stopLoss)} (${fmt(g.stopPct, 2)}%) · max loss ${money(g.riskAmount)}`,
+      `Target ${fmt(g.takeProfit)} (+${fmt(g.targetPct, 2)}%) · gain ${money(g.rewardAmount)}`,
+      `Reward : risk ${fmt(g.rewardRisk, 1)} : 1 (before fees)`
+    );
+    btn.textContent = 'Place this trade';
+    btn.className = 'btn small suggest-btn buy';
+    btn.onclick = () => order(s.symbol, 'buy', card, { quoteAmount: g.quoteAmount });
+  } else if (g.action === 'SELL') {
+    head.textContent = `Suggested: SELL all ${fmt(g.baseAmount, 6)} ${coin} (≈ ${money(g.quoteAmount)} ${quote})`;
+    if (g.pnl !== null && g.pnl !== undefined) {
+      lines.push(`Profit/loss if sold now: ${g.pnl >= 0 ? '+' : ''}${money(g.pnl)} (${fmt(g.pnlPct, 2)}%)`);
+    }
+    btn.textContent = 'Place this trade';
+    btn.className = 'btn small suggest-btn sell';
+    btn.onclick = () => order(s.symbol, 'sell', card, { percent: 100 });
+  } else if (g.action === 'KEEP') {
+    head.textContent = 'Suggested: keep holding';
+    lines.push(g.note, `Stop-loss ${fmt(g.stopLoss)} · take-profit ${fmt(g.takeProfit)}`);
+  } else if (g.action === 'AVOID') {
+    head.textContent = "Suggested: don't buy";
+    lines.push(g.note);
+  } else {
+    head.textContent = 'Suggested: no trade right now';
+    lines.push(g.note);
+  }
+  body.replaceChildren(...lines.map((l) => el('div', {}, l)));
+}
+
+async function loadCandles(symbol) {
+  try {
+    state.candles[symbol] = await api(`/candles?symbol=${encodeURIComponent(symbol)}&limit=120`);
+    drawChart(symbol);
+  } catch {
+    // Candles appear after the first analysis completes.
+  }
+}
+
+function drawChart(symbol) {
+  const canvas = $('.chart', getCard(symbol));
+  const candles = state.candles[symbol];
+  if (!candles?.length) return;
   const closes = candles.map((c) => c[4]);
   const ema = (period) => {
     const k = 2 / (period + 1);
@@ -278,16 +349,16 @@ function renderTrades(trades) {
 
 // ---------------------------------------------------------------- actions
 
-async function order(symbol, side, card) {
+async function order(symbol, side, card, overrides = {}) {
   const live = state.status?.mode === 'live';
   const payload = { symbol, side };
   let description;
   if (side === 'buy') {
-    const amount = parseFloat($('.buyAmt', card).value);
+    const amount = overrides.quoteAmount ?? parseFloat($('.buyAmt', card).value);
     if (amount > 0) payload.quoteAmount = amount;
-    description = `BUY ${symbol} for ${amount > 0 ? `${amount} ${state.status.quote}` : 'an auto-sized amount (risk rules)'}`;
+    description = `BUY ${symbol} for ${amount > 0 ? `${money(amount)} ${state.status.quote}` : 'an auto-sized amount (risk rules)'}`;
   } else {
-    payload.percent = Number($('.sellPct', card).value);
+    payload.percent = overrides.percent ?? Number($('.sellPct', card).value);
     description = `SELL ${payload.percent}% of your ${symbol.split('/')[0]}`;
   }
   if (!confirm(`${live ? '⚠️ LIVE ORDER — real money\n\n' : 'Paper order\n\n'}${description}?`)) return;
@@ -297,7 +368,7 @@ async function order(symbol, side, card) {
   try {
     await post('/order', payload);
     $('.buyAmt', card).value = '';
-    await refresh();
+    await Promise.all([refresh(), loadTrades()]);
   } catch (err) {
     alert(`Order failed: ${err.message}`);
   } finally {
@@ -336,7 +407,7 @@ $('#scanBtn').addEventListener('click', async (e) => {
   e.target.disabled = true;
   try {
     await post('/scan');
-    await refresh(true);
+    await refresh();
   } catch (err) {
     alert(err.message);
   } finally {
@@ -348,31 +419,85 @@ $('#resetBtn').addEventListener('click', async () => {
   if (!confirm('Reset the paper account? All paper positions and history will be cleared.')) return;
   await post('/paper/reset').catch((err) => alert(err.message));
   refresh();
+  loadTrades();
 });
 
-// ------------------------------------------------------------------- loop
+// ------------------------------------------------------------- live data
 
-async function refresh(forceCharts = false) {
+function applySnapshot(snap) {
+  state.lastSnapshotAt = Date.now();
+  renderStatus(snap.status);
+  renderFeed(snap.priceFeed, true);
+  renderSignals(snap.signals);
+  renderPortfolio(snap.portfolio);
+
+  const scanChanged = snap.status.lastScanAt !== state.lastScanAt;
+  state.lastScanAt = snap.status.lastScanAt;
+  for (const s of snap.signals) {
+    const candles = state.candles[s.symbol];
+    if (scanChanged || !candles) {
+      loadCandles(s.symbol);
+    } else if (s.livePrice) {
+      // Move the chart's last point with the live price.
+      const last = candles[candles.length - 1];
+      last[4] = s.livePrice;
+      drawChart(s.symbol);
+    }
+  }
+}
+
+function renderFeed(feed, connected) {
+  const node = $('#feed');
+  if (!connected) {
+    node.textContent = 'Reconnecting…';
+    node.className = 'feed down';
+    return;
+  }
+  const mode = feed?.mode;
+  node.textContent = mode === 'stream' ? 'LIVE' : mode === 'polling' ? 'LIVE (polling)' : mode === 'error' ? 'Price feed error' : 'Connecting…';
+  node.className = `feed ${mode === 'stream' || mode === 'polling' ? 'up' : mode === 'error' ? 'down' : ''}`;
+  node.title = feed?.message || '';
+}
+
+async function refresh() {
   try {
-    const scanChanged = await loadStatus();
-    const [signals, portfolio, alerts, trades] = await Promise.all([
-      api('/signals'),
-      api('/portfolio'),
-      api('/alerts'),
-      api('/trades'),
-    ]);
-    renderSignals(signals);
-    renderPortfolio(portfolio);
-    renderAlerts(alerts);
-    renderTrades(trades);
-    if (scanChanged || forceCharts) signals.forEach((s) => drawChart(s.symbol));
+    applySnapshot(await api('/snapshot'));
   } catch (err) {
     const banner = $('#banner');
     banner.textContent = `Cannot reach the trading server: ${err.message}`;
     banner.className = 'banner danger';
+    renderFeed(null, false);
   }
 }
 
-refresh(true);
-setInterval(refresh, 5000);
+async function loadTrades() {
+  renderTrades(await api('/trades').catch(() => []));
+}
+
+async function loadAlerts() {
+  state.alerts = await api('/alerts').catch(() => state.alerts);
+  renderAlerts(state.alerts);
+}
+
+function connect() {
+  const es = new EventSource('/api/stream');
+  es.addEventListener('open', () => {
+    loadAlerts();
+    loadTrades();
+  });
+  es.addEventListener('snapshot', (e) => applySnapshot(JSON.parse(e.data)));
+  es.addEventListener('alert', (e) => {
+    state.alerts.unshift(JSON.parse(e.data));
+    state.alerts.length = Math.min(state.alerts.length, 100);
+    renderAlerts(state.alerts);
+  });
+  es.addEventListener('trade', () => loadTrades());
+  es.addEventListener('error', () => renderFeed(null, false)); // EventSource retries on its own
+}
+
+connect();
+// Safety net: if the stream goes quiet (e.g. a proxy buffers it), poll instead.
+setInterval(() => {
+  if (Date.now() - state.lastSnapshotAt > 8000) refresh();
+}, 5000);
 window.addEventListener('resize', () => Object.keys(state.cards).forEach(drawChart));

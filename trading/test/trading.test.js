@@ -88,6 +88,73 @@ test('auto-trade buys on a BUY signal only once per candle', async () => {
   assert.strictEqual(engine.trades[0].side, 'buy');
 });
 
+test('suggests a risk-sized BUY, then SELL once held', async () => {
+  const engine = makeEngine({ strategy: { buyThreshold: -100, sellThreshold: -200 } });
+  await engine.scan();
+  const g = engine.suggest('BTC/USDT', await engine.getPortfolio());
+  assert.strictEqual(g.action, 'BUY');
+  // 1% risk of 10k equity = ~100 lost at the stop
+  assert.ok(Math.abs(g.riskAmount - 100) < 1 || g.quoteAmount === 2500, `risk ${g.riskAmount}, amount ${g.quoteAmount}`);
+  assert.ok(g.stopLoss < g.price && g.takeProfit > g.price);
+  assert.ok(g.rewardRisk > 0);
+
+  // Stale setup: price already below the stop
+  engine.prices['BTC/USDT'] = g.stopLoss * 0.99;
+  assert.strictEqual(engine.suggest('BTC/USDT', await engine.getPortfolio()).action, 'WAIT');
+  engine.prices['BTC/USDT'] = g.price;
+
+  await engine.placeOrder({ symbol: 'BTC/USDT', side: 'buy', quoteAmount: g.quoteAmount });
+  engine.signals['BTC/USDT'].signal = 'SELL';
+  const s = engine.suggest('BTC/USDT', await engine.getPortfolio());
+  assert.strictEqual(s.action, 'SELL');
+  assert.ok(s.baseAmount > 0);
+});
+
+test('suggests waiting on HOLD and avoiding on SELL without a position', async () => {
+  const engine = makeEngine();
+  await engine.scan();
+  engine.signals['BTC/USDT'].signal = 'HOLD';
+  assert.strictEqual(engine.suggest('BTC/USDT', await engine.getPortfolio()).action, 'WAIT');
+  engine.signals['BTC/USDT'].signal = 'SELL';
+  assert.strictEqual(engine.suggest('BTC/USDT', await engine.getPortfolio()).action, 'AVOID');
+});
+
+test('a live price tick triggers the stop-loss immediately', async () => {
+  const engine = makeEngine();
+  await engine.scan();
+  await engine.placeOrder({ symbol: 'BTC/USDT', side: 'buy', quoteAmount: 1000 });
+  const stop = engine.positions['BTC/USDT'].stopLoss;
+  engine.onPrices({ 'BTC/USDT': stop * 0.99 });
+  await engine.orderQueue;
+  assert.strictEqual(engine.trades[0].source, 'stop-loss');
+  assert.strictEqual((await engine.getPortfolio()).positions.length, 0);
+});
+
+test('live ticks update the forming candle and the live score', async () => {
+  const engine = makeEngine();
+  await engine.scan();
+  const candles = engine.candles['BTC/USDT'];
+  const before = candles.length;
+  engine.liveScoredAt['BTC/USDT'] = 0;
+  engine.onPrices({ 'BTC/USDT': 12345 });
+  assert.strictEqual(candles.length, before);
+  assert.strictEqual(candles[candles.length - 1][4], 12345);
+  assert.strictEqual(engine.signals['BTC/USDT'].livePrice, 12345);
+  assert.ok(typeof engine.signals['BTC/USDT'].live.score === 'number');
+});
+
+test('a closed candle starts a new one and schedules re-analysis', async () => {
+  const engine = makeEngine();
+  await engine.scan();
+  const candles = engine.candles['BTC/USDT'];
+  candles[candles.length - 1][0] -= 3600e3; // pretend the forming candle is an hour old
+  const price = engine.prices['BTC/USDT'];
+  engine.onPrices({ 'BTC/USDT': price });
+  assert.ok(engine.closeTimer, 'expected a re-analysis to be scheduled');
+  clearTimeout(engine.closeTimer);
+  assert.strictEqual(candles[candles.length - 1][1], price);
+});
+
 test('backtest runs end to end on demo data', async () => {
   const candles = await new DemoMarketData().fetchHistory('ETH/USDT', '1h', 1500);
   const r = backtest(candles, { risk, strategy: { buyThreshold: 3, sellThreshold: -3 } });

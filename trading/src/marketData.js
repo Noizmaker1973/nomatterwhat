@@ -24,10 +24,23 @@ function timeframeMs(tf) {
   return Number(match[1]) * UNIT_MS[match[2]];
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Turns a CCXT tickers map into { 'BTC/USDT': lastPrice, ... }.
+function lastPrices(tickers, symbols) {
+  const out = {};
+  for (const symbol of symbols) {
+    const last = tickers[symbol]?.last;
+    if (last) out[symbol] = last;
+  }
+  return out;
+}
+
 class ExchangeMarketData {
   constructor(config, exchange) {
     this.exchange = exchange || createExchange(config);
     this.name = config.exchange;
+    this.pollMs = (config.pricePollSec || 2) * 1000;
   }
 
   async fetchCandles(symbol, timeframe, limit) {
@@ -55,6 +68,73 @@ class ExchangeMarketData {
     const ticker = await this.exchange.fetchTicker(symbol);
     return ticker.last;
   }
+
+  async fetchPrices(symbols) {
+    if (this.exchange.has.fetchTickers) return lastPrices(await this.exchange.fetchTickers(symbols), symbols);
+    const tickers = await Promise.all(symbols.map((s) => this.exchange.fetchTicker(s)));
+    return lastPrices(Object.fromEntries(tickers.map((t) => [t.symbol, t])), symbols);
+  }
+
+  // Calls onPrices({ symbol: price }) every time prices change. Uses the
+  // exchange's WebSocket feed when CCXT supports it, and falls back to
+  // polling the REST API every few seconds if the stream keeps failing.
+  // onStatus(mode, message) reports 'stream', 'polling' or 'error'.
+  // Returns a function that stops the feed.
+  streamPrices(symbols, onPrices, onStatus = () => {}) {
+    let stopped = false;
+    let ws = null;
+
+    const runStream = async () => {
+      const ProClass = ccxt.pro?.[this.exchange.id];
+      if (!ProClass) return;
+      ws = new ProClass({ enableRateLimit: true });
+      if (!ws.has.watchTickers && !ws.has.watchTicker) return;
+      const watch = ws.has.watchTickers
+        ? () => ws.watchTickers(symbols)
+        : () => Promise.race(symbols.map((s) => ws.watchTicker(s).then((t) => ({ [s]: t }))));
+      let failures = 0;
+      let announced = false;
+      while (!stopped && failures < 3) {
+        try {
+          const prices = lastPrices(await watch(), symbols);
+          failures = 0;
+          if (!announced) {
+            onStatus('stream', `Streaming live prices from ${this.exchange.id}`);
+            announced = true;
+          }
+          onPrices(prices);
+        } catch (err) {
+          if (stopped) return;
+          failures++;
+          announced = false;
+          onStatus('error', `Price stream error (${failures}/3): ${err.message}`);
+          await sleep(1000 * failures);
+        }
+      }
+      await ws.close().catch(() => {});
+    };
+
+    const runPolling = async () => {
+      onStatus('polling', `Polling prices every ${this.pollMs / 1000}s`);
+      while (!stopped) {
+        try {
+          onPrices(await this.fetchPrices(symbols));
+        } catch (err) {
+          onStatus('error', `Price polling error: ${err.message}`);
+        }
+        await sleep(this.pollMs);
+      }
+    };
+
+    runStream()
+      .catch((err) => onStatus('error', `Price stream unavailable: ${err.message}`))
+      .then(() => !stopped && runPolling());
+
+    return () => {
+      stopped = true;
+      if (ws) ws.close().catch(() => {});
+    };
+  }
 }
 
 // Deterministic synthetic prices: overlapping cycles plus noise, so the
@@ -67,21 +147,30 @@ function hash(n) {
 }
 
 class DemoMarketData {
-  constructor() {
+  constructor(config = {}) {
     this.name = 'demo';
+    this.timeframe = config.timeframe || '1h';
+  }
+
+  params(symbol) {
+    const baseCcy = symbol.split('/')[0];
+    return { base: DEMO_BASE[baseCcy] || 100, seed: [...baseCcy].reduce((a, ch) => a + ch.charCodeAt(0), 0) };
+  }
+
+  closeAt(symbol, index) {
+    const { base, seed } = this.params(symbol);
+    const logPrice =
+      0.18 * Math.sin((index + seed * 7) / 160) +
+      0.07 * Math.sin((index + seed) / 41) +
+      0.025 * Math.sin((index + seed * 3) / 11) +
+      0.012 * (hash(index + seed) - 0.5);
+    return base * Math.exp(logPrice);
   }
 
   candleAt(symbol, tfMs, index) {
-    const baseCcy = symbol.split('/')[0];
-    const base = DEMO_BASE[baseCcy] || 100;
-    const seed = [...baseCcy].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-    const logPrice = (k) =>
-      0.18 * Math.sin((k + seed * 7) / 160) +
-      0.07 * Math.sin((k + seed) / 41) +
-      0.025 * Math.sin((k + seed * 3) / 11) +
-      0.012 * (hash(k + seed) - 0.5);
-    const open = base * Math.exp(logPrice(index - 1));
-    const close = base * Math.exp(logPrice(index));
+    const { base, seed } = this.params(symbol);
+    const open = this.closeAt(symbol, index - 1);
+    const close = this.closeAt(symbol, index);
     const wick = Math.abs(close - open) + base * 0.003 * hash(index * 3 + seed);
     const high = Math.max(open, close) + wick * hash(index * 5 + seed);
     const low = Math.min(open, close) - wick * hash(index * 7 + seed);
@@ -90,11 +179,32 @@ class DemoMarketData {
     return [index * tfMs, open, high, low, close, volume];
   }
 
+  // The current price drifts from the forming candle's open towards its
+  // close as the candle progresses, with a little second-by-second wiggle.
+  livePrice(symbol, now = Date.now()) {
+    const tfMs = timeframeMs(this.timeframe);
+    const index = Math.floor(now / tfMs);
+    const progress = (now % tfMs) / tfMs;
+    const open = this.closeAt(symbol, index - 1);
+    const close = this.closeAt(symbol, index);
+    const { base, seed } = this.params(symbol);
+    const wiggle = base * 0.0015 * Math.sin(now / 2300 + seed) * Math.sin(now / 7100 + seed * 2);
+    return open + (close - open) * progress + wiggle;
+  }
+
   async fetchCandles(symbol, timeframe, limit) {
     const tfMs = timeframeMs(timeframe);
     const last = Math.floor(Date.now() / tfMs);
     const out = [];
     for (let i = last - limit + 1; i <= last; i++) out.push(this.candleAt(symbol, tfMs, i));
+    if (timeframe === this.timeframe) {
+      // The forming candle ends at the live price, like a real exchange.
+      const forming = out[out.length - 1];
+      const price = this.livePrice(symbol);
+      forming[4] = price;
+      forming[2] = Math.max(forming[1], price);
+      forming[3] = Math.min(forming[1], price);
+    }
     return out;
   }
 
@@ -103,13 +213,22 @@ class DemoMarketData {
   }
 
   async fetchPrice(symbol) {
-    const [candle] = await this.fetchCandles(symbol, '1m', 1);
-    return candle[4];
+    return this.livePrice(symbol);
+  }
+
+  async fetchPrices(symbols) {
+    return Object.fromEntries(symbols.map((s) => [s, this.livePrice(s)]));
+  }
+
+  streamPrices(symbols, onPrices, onStatus = () => {}) {
+    onStatus('stream', 'Streaming demo prices');
+    const timer = setInterval(() => this.fetchPrices(symbols).then(onPrices), 1000);
+    return () => clearInterval(timer);
   }
 }
 
 function createMarketData(config) {
-  return config.dataSource === 'demo' ? new DemoMarketData() : new ExchangeMarketData(config);
+  return config.dataSource === 'demo' ? new DemoMarketData(config) : new ExchangeMarketData(config);
 }
 
 module.exports = { createExchange, createMarketData, timeframeMs, DemoMarketData, ExchangeMarketData };

@@ -11,6 +11,8 @@ A self-hosted platform that watches **BTC, ETH, SOL and BNB**, generates **buy/s
 | **Signals** | Scores RSI, MACD, EMA 9/21/50/200, Bollinger Bands and volume into one BUY / SELL / HOLD signal with a confidence level and the reasons behind it |
 | **Stops & targets** | Every signal includes an ATR-based stop-loss (2×ATR) and take-profit (3×ATR) |
 | **Exchange connection** | Uses [CCXT](https://github.com/ccxt/ccxt), which supports 100+ exchanges: Binance.US, Binance, Kraken, Coinbase, OKX, Bybit, KuCoin and more |
+| **Suggested trades** | Each coin shows what to do right now (buy how much, sell, keep holding or wait), with the stop-loss, target, max loss, potential gain and reward:risk. One click places it |
+| **Live updates** | Prices stream over the exchange's WebSocket feed (falling back to polling every 2s) and are pushed to the dashboard instantly. Stops trigger on the live price, and signals are recalculated the moment a candle closes |
 | **One-click trading** | Dashboard Buy/Sell buttons. Leave the amount empty and the platform sizes the trade from your risk settings |
 | **Auto-trading** | Optional. Buys on BUY signals, sells on SELL signals, and enforces stop-loss/take-profit |
 | **Paper trading** | Simulated account against real prices (with fees and slippage). This is the default |
@@ -73,7 +75,7 @@ Each indicator votes, and the votes are summed into a score:
 | Bollinger Bands (20, 2) | +1 below lower band | −1 above upper band |
 | Volume > 1.5× its 20-bar average | score ×1.25 | score ×1.25 |
 
-**score ≥ BUY_THRESHOLD (3) → BUY, score ≤ SELL_THRESHOLD (−3) → SELL**, anything in between is HOLD. Each coin card shows this as a gauge: the red zone is SELL, the green zone is BUY, the lines are the trigger levels, and the dot is the current score. Signals use **closed candles only**, so they don't flicker while a candle is still forming. Raise the thresholds for fewer, stronger signals.
+**score ≥ BUY_THRESHOLD (3) → BUY, score ≤ SELL_THRESHOLD (−3) → SELL**, anything in between is HOLD. Each coin card shows this as a gauge: the red zone is SELL, the green zone is BUY, the lines are the trigger levels, and the dot is the current score. A hollow ring on the gauge shows the **live** score, which includes the still-forming candle, so you can watch a signal building. Signals use **closed candles only**, so they don't flicker while a candle is still forming. Raise the thresholds for fewer, stronger signals.
 
 This is **spot trading only**: SELL means "sell what you hold". It never shorts or uses leverage.
 
@@ -128,6 +130,8 @@ trading/
 | GET | `/api/portfolio` | cash, equity, positions with P&L |
 | GET | `/api/trades` · `/api/alerts` | history |
 | GET | `/api/candles?symbol=BTC/USDT` | recent candles |
+| GET | `/api/snapshot` | signals with suggested trades, portfolio and status in one call |
+| GET | `/api/stream` | Server-Sent Events: live `snapshot`, `alert` and `trade` events |
 | POST | `/api/order` | `{ "symbol": "BTC/USDT", "side": "buy", "quoteAmount": 250 }` (omit `quoteAmount` for auto size) or `{ "symbol": "BTC/USDT", "side": "sell", "percent": 50 }` |
 | POST | `/api/stops` | `{ "symbol", "stopLoss", "takeProfit" }` |
 | POST | `/api/auto-trade` | `{ "enabled": true }` |

@@ -23,6 +23,11 @@ class TradingEngine extends EventEmitter {
     this.signals = {};
     this.candles = {};
     this.prices = {};
+    this.priceAt = {};
+    this.liveScoredAt = {};
+    this.exiting = new Set();
+    this.balances = null;
+    this.priceFeed = { mode: 'starting', message: '' };
     this.errors = {};
     this.alerts = [];
     this.lastActedCandle = {};
@@ -45,7 +50,7 @@ class TradingEngine extends EventEmitter {
     this.scanning = true;
     try {
       await Promise.all(this.config.symbols.map((s) => this.scanSymbol(s)));
-      const portfolio = await this.getPortfolio();
+      const portfolio = await this.getPortfolio({ fresh: true });
       this.guardState = this.lossGuard.update(portfolio.equity);
       for (const symbol of this.config.symbols) {
         if (!this.signals[symbol]) continue;
@@ -67,12 +72,16 @@ class TradingEngine extends EventEmitter {
       const tf = timeframeMs(this.config.timeframe);
       const closed = candles[candles.length - 1][0] + tf > Date.now() ? candles.slice(0, -1) : candles;
       const signal = analyze(closed, this.config.strategy);
-      const price = candles[candles.length - 1][4];
+      // Prefer the streamed price; fall back to the candle if the feed is quiet.
+      const lastClose = candles[candles.length - 1][4];
+      const streamed = Date.now() - (this.priceAt[symbol] || 0) < 15000;
+      const price = streamed ? this.prices[symbol] : lastClose;
 
       const previous = this.signals[symbol];
       this.candles[symbol] = candles;
-      this.prices[symbol] = price;
+      if (!streamed) this.prices[symbol] = price;
       this.signals[symbol] = { symbol, ...signal, livePrice: price, updatedAt: Date.now() };
+      this.updateLiveScore(symbol, true);
       delete this.errors[symbol];
 
       const isNew = signal.signal !== 'HOLD' && (!previous || previous.signal !== signal.signal || previous.time !== signal.time);
@@ -85,22 +94,91 @@ class TradingEngine extends EventEmitter {
     }
   }
 
-  async manageSymbol(symbol, portfolio) {
+  // ------------------------------------------------------------- live prices
+
+  onPrices(prices) {
+    const now = Date.now();
+    const tf = timeframeMs(this.config.timeframe);
+    let candleClosed = false;
+    for (const [symbol, price] of Object.entries(prices)) {
+      if (!this.config.symbols.includes(symbol) || !(price > 0)) continue;
+      this.prices[symbol] = price;
+      this.priceAt[symbol] = now;
+
+      const candles = this.candles[symbol];
+      if (candles) {
+        const forming = candles[candles.length - 1];
+        if (now >= forming[0] + tf) {
+          // A candle just closed: start a new one and re-analyze shortly.
+          candles.push([Math.floor(now / tf) * tf, price, price, price, price, 0]);
+          candles.shift();
+          candleClosed = true;
+        } else {
+          forming[4] = price;
+          forming[2] = Math.max(forming[2], price);
+          forming[3] = Math.min(forming[3], price);
+        }
+      }
+      if (this.signals[symbol]) {
+        this.signals[symbol].livePrice = price;
+        this.updateLiveScore(symbol);
+      }
+      this.checkStops(symbol);
+    }
+    if (candleClosed) {
+      // Give the exchange a moment to finalize the closed candle.
+      clearTimeout(this.closeTimer);
+      this.closeTimer = setTimeout(() => this.scan(), 3000);
+    }
+    this.emit('tick');
+  }
+
+  // A provisional score that includes the still-forming candle. It is shown
+  // on the dashboard so you can watch a signal building, but trades only
+  // ever act on closed candles.
+  updateLiveScore(symbol, force = false) {
+    const candles = this.candles[symbol];
+    const signal = this.signals[symbol];
+    if (!candles || !signal) return;
+    if (!force && Date.now() - (this.liveScoredAt[symbol] || 0) < 1000) return;
+    this.liveScoredAt[symbol] = Date.now();
+    try {
+      const live = analyze(candles, this.config.strategy);
+      signal.live = { score: live.score, signal: live.signal };
+    } catch {
+      // Not enough history yet; keep the last value.
+    }
+  }
+
+  holding(symbol) {
+    const amount = this.balances?.holdings[symbol.split('/')[0]] || 0;
+    const value = amount * (this.prices[symbol] || 0);
+    return { amount, value, held: value >= this.config.risk.minOrderSize };
+  }
+
+  // Protective exits run on every price update, regardless of auto-trade.
+  checkStops(symbol) {
+    const meta = this.positions[symbol];
     const price = this.prices[symbol];
+    if (!this.config.enforceStops || !meta || this.exiting.has(symbol) || !this.holding(symbol).held) return null;
+    let order = null;
+    if (meta.stopLoss && price <= meta.stopLoss) {
+      order = { symbol, side: 'sell', percent: 100, source: 'stop-loss', reason: `Stop-loss hit at ${fmt(meta.stopLoss)}` };
+    } else if (meta.takeProfit && price >= meta.takeProfit) {
+      order = { symbol, side: 'sell', percent: 100, source: 'take-profit', reason: `Take-profit hit at ${fmt(meta.takeProfit)}` };
+    }
+    if (!order) return null;
+    this.exiting.add(symbol);
+    return this.safeOrder(order).finally(() => this.exiting.delete(symbol));
+  }
+
+  async manageSymbol(symbol, portfolio) {
     const signal = this.signals[symbol];
     const position = portfolio.positions.find((p) => p.symbol === symbol);
     const held = position && position.value >= this.config.risk.minOrderSize;
-    const meta = this.positions[symbol];
 
-    // Protective exits run regardless of the auto-trade setting.
-    if (held && meta && this.config.enforceStops) {
-      if (meta.stopLoss && price <= meta.stopLoss) {
-        return this.safeOrder({ symbol, side: 'sell', percent: 100, source: 'stop-loss', reason: `Stop-loss hit at ${fmt(meta.stopLoss)}` });
-      }
-      if (meta.takeProfit && price >= meta.takeProfit) {
-        return this.safeOrder({ symbol, side: 'sell', percent: 100, source: 'take-profit', reason: `Take-profit hit at ${fmt(meta.takeProfit)}` });
-      }
-    }
+    const exit = this.checkStops(symbol);
+    if (exit) return exit;
 
     if (!this.autoTrade || this.lastActedCandle[symbol] === signal.time) return;
 
@@ -137,7 +215,7 @@ class TradingEngine extends EventEmitter {
   async executeOrder({ symbol, side, quoteAmount, percent = 100, source = 'manual', reason = '' }) {
     if (!this.config.symbols.includes(symbol)) throw new Error(`Unknown symbol ${symbol}`);
     const price = this.prices[symbol] || (await this.marketData.fetchPrice(symbol));
-    const portfolio = await this.getPortfolio();
+    const portfolio = await this.getPortfolio({ fresh: true });
     const position = portfolio.positions.find((p) => p.symbol === symbol);
     const signal = this.signals[symbol];
     let fill;
@@ -186,6 +264,7 @@ class TradingEngine extends EventEmitter {
     this.trades.length = Math.min(this.trades.length, MAX_TRADES);
     writeJson(this.positionsFile, this.positions);
     writeJson(this.tradesFile, this.trades);
+    await this.refreshBalances().catch(() => {});
 
     const pnl = trade.realizedPnl !== undefined ? ` | P&L ${trade.realizedPnl >= 0 ? '+' : ''}${fmt(trade.realizedPnl)}` : '';
     this.addAlert('trade', `[${this.broker.mode.toUpperCase()}] ${side.toUpperCase()} ${fmtAmt(fill.amount)} ${symbol} @ ${fmt(fill.price)} (${source})${pnl}`, true);
@@ -212,8 +291,20 @@ class TradingEngine extends EventEmitter {
 
   // --------------------------------------------------------------- portfolio
 
-  async getPortfolio() {
-    const { cash, holdings } = await this.broker.getBalances();
+  async refreshBalances() {
+    this.balances = await this.broker.getBalances();
+    return this.balances;
+  }
+
+  // Uses cached balances unless `fresh` is set, so live price updates don't
+  // hit the exchange's account API every second.
+  async getPortfolio({ fresh = false } = {}) {
+    if (fresh || !this.balances) await this.refreshBalances();
+    return this.portfolioSnapshot();
+  }
+
+  portfolioSnapshot() {
+    const { cash, holdings } = this.balances || { cash: 0, holdings: {} };
     const positions = [];
     for (const symbol of this.config.symbols) {
       const base = symbol.split('/')[0];
@@ -239,6 +330,86 @@ class TradingEngine extends EventEmitter {
     return { cash, equity, positions, quote: this.config.quote };
   }
 
+  // ------------------------------------------------------------ suggestions
+
+  // What the analysis suggests doing right now with this coin, sized with
+  // the same risk rules the Buy button and auto-trader use.
+  suggest(symbol, portfolio) {
+    const s = this.signals[symbol];
+    const price = this.prices[symbol];
+    if (!s || !price || !s.indicators) return { action: 'WAIT', note: 'Waiting for enough price data' };
+    const { buyThreshold, sellThreshold } = this.config.strategy;
+    const position = portfolio.positions.find((p) => p.symbol === symbol);
+    const held = position && position.value >= this.config.risk.minOrderSize;
+    const round = (n) => Math.round(n * 100) / 100;
+
+    if (s.signal === 'BUY' && !held) {
+      if (this.guardState.halted) return { action: 'WAIT', note: 'BUY signal, but the daily loss limit is reached. New buys resume tomorrow (UTC).' };
+      // The stop/target were set at the candle close; the live price may have moved past them since.
+      if (price <= s.stopLoss) return { action: 'WAIT', note: 'BUY signal, but the price has already fallen below its stop-loss. Wait for the next candle.' };
+      if (price >= s.takeProfit) return { action: 'WAIT', note: 'BUY signal, but the price already reached its target. Too late to enter; wait for the next setup.' };
+      const sized = sizeBuy(
+        { equity: portfolio.equity, cash: portfolio.cash, price, stopLoss: s.stopLoss, currentPositionValue: 0 },
+        this.config.risk
+      );
+      if (!sized.amount) return { action: 'WAIT', note: `BUY signal, but ${sized.reason.toLowerCase()}.` };
+      const amount = sized.amount;
+      const stopPct = ((s.stopLoss - price) / price) * 100;
+      const targetPct = ((s.takeProfit - price) / price) * 100;
+      return {
+        action: 'BUY',
+        quoteAmount: amount,
+        baseAmount: amount / price,
+        price,
+        stopLoss: s.stopLoss,
+        takeProfit: s.takeProfit,
+        stopPct,
+        targetPct,
+        riskAmount: (amount * -stopPct) / 100,
+        rewardAmount: (amount * targetPct) / 100,
+        rewardRisk: targetPct / -stopPct,
+        equityPct: (amount / portfolio.equity) * 100,
+      };
+    }
+    if (s.signal === 'SELL' && held) {
+      return {
+        action: 'SELL',
+        percent: 100,
+        baseAmount: position.amount,
+        quoteAmount: position.value,
+        price,
+        pnl: position.pnl,
+        pnlPct: position.pnlPct,
+      };
+    }
+    if (s.signal === 'SELL') return { action: 'AVOID', note: `Bearish. Don't buy ${symbol.split('/')[0]} now; you hold none to sell.` };
+    if (held) {
+      return {
+        action: 'KEEP',
+        note: s.signal === 'BUY' ? 'Still bullish. Keep your position.' : 'No exit signal. Keep your position.',
+        stopLoss: position.stopLoss,
+        takeProfit: position.takeProfit,
+      };
+    }
+    return {
+      action: 'WAIT',
+      note: `No trade. Needs ${round(buyThreshold - s.score)} more points for BUY.`,
+      toBuy: round(buyThreshold - s.score),
+      toSell: round(s.score - sellThreshold),
+    };
+  }
+
+  // Everything the dashboard shows, built from cached data (no API calls).
+  snapshot() {
+    const portfolio = this.portfolioSnapshot();
+    const signals = this.config.symbols.map((symbol) => {
+      const s = this.signals[symbol];
+      if (!s) return { symbol, signal: 'LOADING', livePrice: this.prices[symbol] };
+      return { ...s, livePrice: this.prices[symbol] ?? s.livePrice, suggestion: this.suggest(symbol, portfolio) };
+    });
+    return { signals, portfolio, priceFeed: this.priceFeed, serverTime: Date.now() };
+  }
+
   // ------------------------------------------------------------------- misc
 
   addAlert(type, text, notify = false) {
@@ -258,10 +429,23 @@ class TradingEngine extends EventEmitter {
   start() {
     this.scan();
     this.timer = setInterval(() => this.scan(), this.config.scanIntervalSec * 1000);
+    if (this.marketData.streamPrices) {
+      this.stopFeed = this.marketData.streamPrices(
+        this.config.symbols,
+        (prices) => this.onPrices(prices),
+        (mode, message) => {
+          const changed = mode !== this.priceFeed.mode;
+          this.priceFeed = { mode, message };
+          if (changed) this.addAlert(mode === 'error' ? 'error' : 'info', message);
+        }
+      );
+    }
   }
 
   stop() {
     clearInterval(this.timer);
+    clearTimeout(this.closeTimer);
+    if (this.stopFeed) this.stopFeed();
   }
 }
 

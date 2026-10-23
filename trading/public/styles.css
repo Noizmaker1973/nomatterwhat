@@ -59,6 +59,8 @@ section { margin-bottom: 20px; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .card, .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.card { display: flex; flex-direction: column; }
+.card .trade { margin-top: auto; }
 .card.BUY { border-color: var(--buy); box-shadow: 0 0 0 1px var(--buy) inset; }
 .card.SELL { border-color: var(--sell); box-shadow: 0 0 0 1px var(--sell) inset; }
 
@@ -91,6 +93,32 @@ section { margin-bottom: 20px; }
 .gauge-labels .buy { color: var(--buy); padding-left: 4px; }
 .gauge-labels .hold { color: var(--muted); font-weight: 500; transform: translateX(-50%); }
 .score-label { font-size: 12px; color: var(--muted); }
+.live-label { font-size: 11px; color: var(--muted); font-style: italic; min-height: 14px; }
+.gauge .marker.live { background: transparent; border: 2px solid var(--text); width: 12px; height: 12px; opacity: .8; }
+
+.feed { font-size: 11px; font-weight: 700; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.feed::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.feed.up { color: var(--buy); }
+.feed.up::before { background: var(--buy); animation: pulse 1.6s infinite; }
+.feed.down { color: var(--sell); }
+.feed.down::before { background: var(--sell); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+.price.up { animation: flash-up .8s; }
+.price.down { animation: flash-down .8s; }
+@keyframes flash-up { from { color: var(--buy); } }
+@keyframes flash-down { from { color: var(--sell); } }
+
+.suggest { border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; padding: 8px 10px; margin: 10px 0; font-size: 12px; }
+.suggest-head { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+.suggest-body { color: var(--muted); font-variant-numeric: tabular-nums; }
+.suggest-btn { margin-top: 8px; width: 100%; }
+.suggest.BUY { border-color: var(--buy); background: #2ea04314; }
+.suggest.BUY .suggest-head { color: var(--buy); }
+.suggest.SELL { border-color: var(--sell); background: #f8514914; }
+.suggest.SELL .suggest-head { color: var(--sell); }
+.suggest.AVOID { border-left-color: var(--sell); }
+.suggest.KEEP { border-left-color: var(--accent); }
 
 .chart { width: 100%; margin: 8px 0; display: block; }
 
