@@ -70,9 +70,26 @@ section { margin-bottom: 20px; }
 .signal.SELL { background: var(--sell); color: #fff; }
 .signal.HOLD, .signal.LOADING { background: #30363d; color: var(--muted); }
 
-.scorebar { position: relative; height: 6px; background: #21262d; border-radius: 3px; margin: 12px 0 4px; overflow: hidden; }
-.scorebar .fill { position: absolute; top: 0; bottom: 0; }
-.scorebar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); }
+.gauge { position: relative; height: 10px; background: #21262d; border-radius: 5px; margin: 14px 0 0; }
+.gauge .zone { position: absolute; top: 0; bottom: 0; }
+.gauge .zone.sell { left: 0; background: #f8514940; border-radius: 5px 0 0 5px; }
+.gauge .zone.buy { right: 0; background: #2ea04340; border-radius: 0 5px 5px 0; }
+.gauge .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; transform: translateX(-50%); }
+.gauge .tick.sell { background: var(--sell); }
+.gauge .tick.buy { background: var(--buy); }
+.gauge .tick.mid { left: 50%; width: 1px; top: 0; bottom: 0; background: var(--border); }
+.gauge .marker {
+  position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  transform: translate(-50%, -50%); background: var(--text); border: 2px solid var(--bg);
+  transition: left .4s ease;
+}
+.gauge .marker.BUY { background: var(--buy); }
+.gauge .marker.SELL { background: var(--sell); }
+.gauge-labels { position: relative; height: 16px; margin: 4px 0 2px; font-size: 10px; font-weight: 700; letter-spacing: .03em; }
+.gauge-labels .lbl { position: absolute; white-space: nowrap; }
+.gauge-labels .sell { color: var(--sell); padding-right: 4px; }
+.gauge-labels .buy { color: var(--buy); padding-left: 4px; }
+.gauge-labels .hold { color: var(--muted); font-weight: 500; transform: translateX(-50%); }
 .score-label { font-size: 12px; color: var(--muted); }
 
 .chart { width: 100%; margin: 8px 0; display: block; }

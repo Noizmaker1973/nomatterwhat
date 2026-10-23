@@ -71,7 +71,19 @@
         </div>
         <span class="signal"></span>
       </div>
-      <div class="scorebar"><div class="fill"></div><div class="mid"></div></div>
+      <div class="gauge" title="Signal score: the marker shows where this coin is between the SELL and BUY trigger levels">
+        <div class="zone sell"></div>
+        <div class="zone buy"></div>
+        <div class="tick sell"></div>
+        <div class="tick mid"></div>
+        <div class="tick buy"></div>
+        <div class="marker"></div>
+      </div>
+      <div class="gauge-labels">
+        <span class="lbl sell"></span>
+        <span class="lbl hold">HOLD</span>
+        <span class="lbl buy"></span>
+      </div>
       <div class="score-label"></div>
       <canvas class="chart" height="110"></canvas>
       <dl class="stats"></dl>

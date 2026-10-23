@@ -73,7 +73,7 @@ Each indicator votes, and the votes are summed into a score:
 | Bollinger Bands (20, 2) | +1 below lower band | −1 above upper band |
 | Volume > 1.5× its 20-bar average | score ×1.25 | score ×1.25 |
 
-**score ≥ BUY_THRESHOLD (3) → BUY, score ≤ SELL_THRESHOLD (−3) → SELL**, anything in between is HOLD. Signals use **closed candles only**, so they don't flicker while a candle is still forming. Raise the thresholds for fewer, stronger signals.
+**score ≥ BUY_THRESHOLD (3) → BUY, score ≤ SELL_THRESHOLD (−3) → SELL**, anything in between is HOLD. Each coin card shows this as a gauge: the red zone is SELL, the green zone is BUY, the lines are the trigger levels, and the dot is the current score. Signals use **closed candles only**, so they don't flicker while a candle is still forming. Raise the thresholds for fewer, stronger signals.
 
 This is **spot trading only**: SELL means "sell what you hold". It never shorts or uses leverage.
 

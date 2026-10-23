@@ -91,15 +91,7 @@ function renderSignals(signals) {
     badge.textContent = s.signal;
     badge.className = `signal ${s.signal}`;
 
-    const score = s.score || 0;
-    const pct = Math.min(Math.abs(score) / 8, 1) * 50;
-    const fill = $('.fill', card);
-    fill.style.left = score >= 0 ? '50%' : `${50 - pct}%`;
-    fill.style.width = `${pct}%`;
-    fill.style.background = score >= 0 ? 'var(--buy)' : 'var(--sell)';
-    const th = state.status?.strategy || {};
-    $('.score-label', card).textContent =
-      `Score ${score} (buy ≥ ${th.buyThreshold}, sell ≤ ${th.sellThreshold}) · confidence ${Math.round((s.confidence || 0) * 100)}%`;
+    renderGauge(card, s);
 
     const i = s.indicators || {};
     const stats = $('.stats', card);
@@ -120,6 +112,45 @@ function renderSignals(signals) {
     const reasons = $('.reasons', card);
     reasons.replaceChildren(...(s.reasons || []).map((r) => el('li', {}, r)));
   }
+}
+
+// The gauge spans scores -GAUGE_RANGE..+GAUGE_RANGE, with the SELL and BUY
+// zones starting at the configured trigger levels.
+const GAUGE_RANGE = 8;
+const gaugePos = (v) => 50 + (Math.max(-GAUGE_RANGE, Math.min(GAUGE_RANGE, v)) / GAUGE_RANGE) * 50;
+
+function renderGauge(card, s) {
+  const { buyThreshold: buy = 3, sellThreshold: sell = -3 } = state.status?.strategy || {};
+  const score = s.score || 0;
+  const sellPos = gaugePos(sell);
+  const buyPos = gaugePos(buy);
+
+  $('.zone.sell', card).style.width = `${sellPos}%`;
+  $('.zone.buy', card).style.left = `${buyPos}%`;
+  $('.tick.sell', card).style.left = `${sellPos}%`;
+  $('.tick.buy', card).style.left = `${buyPos}%`;
+  const marker = $('.marker', card);
+  marker.style.left = `${gaugePos(score)}%`;
+  marker.className = `marker ${s.signal}`;
+
+  // Labels sit on the outer side of their trigger line so they never overlap.
+  const sellLbl = $('.lbl.sell', card);
+  sellLbl.textContent = `SELL ≤ ${sell}`;
+  sellLbl.style.right = `${100 - Math.max(sellPos, 22)}%`;
+  const buyLbl = $('.lbl.buy', card);
+  buyLbl.textContent = `BUY ≥ ${buy}`;
+  buyLbl.style.left = `${Math.min(buyPos, 78)}%`;
+  const holdLbl = $('.lbl.hold', card);
+  holdLbl.style.left = `${(sellPos + buyPos) / 2}%`;
+  holdLbl.classList.toggle('hidden', buyPos - sellPos < 22);
+
+  const round = (n) => Math.round(n * 100) / 100;
+  let distance;
+  if (score >= buy) distance = 'in the BUY zone';
+  else if (score <= sell) distance = 'in the SELL zone';
+  else distance = `${round(buy - score)} pts to BUY · ${round(score - sell)} pts to SELL`;
+  $('.score-label', card).textContent =
+    `Score ${score} · ${distance} · confidence ${Math.round((s.confidence || 0) * 100)}%`;
 }
 
 async function drawChart(symbol) {
