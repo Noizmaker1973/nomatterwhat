@@ -37,7 +37,8 @@ const config = {
   paperStartingBalance: num(env.PAPER_STARTING_BALANCE, 10000),
   autoTrade: bool(env.AUTO_TRADE, false),
   enforceStops: bool(env.ENFORCE_STOPS, true),
-  dataSource: (env.DATA_SOURCE || 'exchange').toLowerCase(),
+  // `--demo` on the command line works on every OS (Windows has no `VAR=x cmd`).
+  dataSource: process.argv.includes('--demo') ? 'demo' : (env.DATA_SOURCE || 'exchange').toLowerCase(),
 
   risk: {
     riskPerTradePct: num(env.RISK_PER_TRADE_PCT, 1),

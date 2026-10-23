@@ -35,6 +35,7 @@ Other commands:
 npm run signals                          # print current signals in the terminal
 npm run backtest                         # backtest all coins (2000 bars of TIMEFRAME)
 npm run backtest -- BTC SOL --bars 3000 --timeframe 4h
+npm run backtest -- --demo               # any command accepts --demo for synthetic prices
 npm test                                 # unit tests
 ```
 

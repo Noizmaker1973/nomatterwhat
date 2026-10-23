@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "demo": "DATA_SOURCE=demo node src/server.js",
+    "demo": "node src/server.js --demo",
     "signals": "node src/cli.js signals",
     "backtest": "node src/backtest.js",
     "test": "node --test test/*.test.js"

@@ -78,6 +78,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--bars') args.bars = parseInt(argv[++i], 10);
     else if (argv[i] === '--timeframe') args.timeframe = argv[++i];
+    else if (argv[i] === '--demo') continue; // handled in config.js
     else args.bases.push(argv[i].toUpperCase());
   }
   return args;
