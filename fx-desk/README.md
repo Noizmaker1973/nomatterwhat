@@ -75,6 +75,29 @@ node src/cli.js momentum paper                     # P&L of the logged snapshots
 
 **Carry and interest.** Yahoo prices are spot, so the backtest **leaves out interest earned or paid on the position**. For a pair like USDJPY that's several percent a year. To include it, add `config/rates-history.csv` with columns `date,USD,EUR,GBP,JPY,CHF,AUD,CAD`. Use one row per rate change, and each row holds until the next. Only use rates you've checked against the central banks. With that file present, interest is accrued daily. Setting `carryWeight` (e.g. 0.5) also tilts the signal toward the higher-yielding side. `--no-carry` turns it all off.
 
+## 1c. Range scan
+
+Which pairs are ranging now, and how often have ranges actually broken? This also tests the idea of selling options outside historical highs and lows.
+
+```bash
+node src/cli.js range                          # ranks the majors plus AUDNZD, EURGBP, EURCHF, NZDUSD
+node src/cli.js range --pair AUDNZD            # every horizon, all history vs the last 2 years
+node src/cli.js range --days 120 --buffer-atr 1   # 120-day range, "strikes" 1 ATR outside it
+```
+
+**The current range** (last `--days` bars):
+- **width:** in % and in ATRs.
+- **position:** where the last close sits in the range.
+- **efficiency ratio:** net move ÷ path. Near 0 is chop, 1 is a straight line.
+- **variance ratio:** below 1 leans mean-reverting, above 1 leans trending.
+
+**The breach study.** For every past day, take the prior N-day high/low (± buffer) and look H days ahead (5/10/20):
+- **touched:** price traded through a level at some point. That's the intraperiod stress on a short option.
+- **closed outside:** price was beyond a level on day H. That's a short option finishing in the money.
+- **overshoot:** how far past the level it closed, as median, 95th percentile and max. That's the size of the losing weeks.
+
+Days overlap, so the effective sample is far smaller than the day count. The pair lists and defaults are in `config.range`. Crosses can be scanned and traded spot, but `options` only maps the six USD pairs to CME futures.
+
 ## 2. Options analytics (CME FX futures options)
 
 US retail can't trade OTC FX options. Strangles on currencies go through CME options on FX futures, which means a futures account (IBKR, tastytrade, NinjaTrader, …). Spot pairs map to futures as follows:
@@ -117,6 +140,7 @@ config/rates.json     policy rates (update these)
 data/                 gitignored: signals.jsonl, outcomes.jsonl, strangles.jsonl,
                       strangle_outcomes.jsonl, iv/<future>.jsonl, cot/, calendar.json
 src/signals/          breakout detector, scoring, walk-forward backtest, momentum
+src/analysis/range.js range metrics and breach study
 src/options/          black76, vol, strangle, margin, stress, paper
 src/fundamentals/     rates, cot, calendar, filter
 ```

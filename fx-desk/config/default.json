@@ -100,5 +100,28 @@
     "executionLagDays": 1,
     "carryWeight": 0,
     "outOfSampleStart": "2023-01-01"
+  },
+  "range": {
+    "pairs": [
+      "EURUSD",
+      "GBPUSD",
+      "USDJPY",
+      "AUDUSD",
+      "USDCAD",
+      "USDCHF",
+      "NZDUSD",
+      "AUDNZD",
+      "EURGBP",
+      "EURCHF"
+    ],
+    "days": 60,
+    "horizons": [
+      5,
+      10,
+      20
+    ],
+    "bufferAtr": 0,
+    "recentYears": 2,
+    "sortHorizon": 10
   }
 }

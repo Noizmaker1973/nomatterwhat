@@ -16,6 +16,7 @@ import { CONTRACTS, parsePair } from './pairs.js';
 import { realizedVol, parkinsonVol, rvPercentile, logIv, ivRank } from './options/vol.js';
 import { openPaperStrangle, scorePaperStrangle } from './options/paper.js';
 import { stressPanel } from './options/stress.js';
+import { breachStudy, currentRange } from './analysis/range.js';
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -384,6 +385,67 @@ async function cmdMomentum(args, config) {
   console.log('\nRough guide: |t| < 2 is indistinguishable from luck. Spot returns exclude interest unless a rate history is supplied.');
 }
 
+async function cmdRange(args, config) {
+  const rc = config.range;
+  const days = Number(args.days ?? rc.days);
+  const bufferAtr = Number(args['buffer-atr'] ?? rc.bufferAtr);
+  const horizons = rc.horizons;
+  const sortH = Number(args.horizon ?? rc.sortHorizon);
+  const list = args.pair ? String(args.pair) : args.pairs ? String(args.pairs) : null;
+  const pairs = list ? list.split(',').map((p) => parsePair(p).pair) : rc.pairs;
+  const recentSince = Date.now() - rc.recentYears * 365 * 86400e3;
+  const rows = [];
+  for (const pair of pairs) {
+    try {
+      const candles = await getCandles(pair, '1d', config, { ...dataOpts(args), days: undefined });
+      const cur = currentRange(candles, days);
+      if (!cur) throw new Error('not enough history');
+      const opts = { days, horizons, bufferAtr };
+      rows.push({ pair, candles, cur, all: breachStudy(candles, opts), recent: breachStudy(candles, { ...opts, since: recentSince }) });
+    } catch (e) {
+      console.error(`${pair}: ${e.message}`);
+    }
+  }
+  if (!rows.length) return;
+  const span = (c) => `${new Date(c[0].t).toISOString().slice(0, 10)}..${new Date(c.at(-1).t).toISOString().slice(0, 10)}`;
+  const f = (x, d = 1) => (x == null ? 'n/a' : x.toFixed(d));
+  const p100 = (x) => (x == null ? '  n/a' : `${(x * 100).toFixed(0)}%`.padStart(5));
+
+  if (args.pair) {
+    const r = rows[0];
+    const c = r.cur;
+    console.log(`\n${r.pair}  (${span(r.candles)}, ${days}-day range, buffer ${bufferAtr} ATR)`);
+    console.log(`Now: ${c.low.toPrecision(5)} - ${c.high.toPrecision(5)}  width ${f(c.widthPct, 2)}% = ${f(c.widthAtr)} ATR  last ${c.last.toPrecision(5)} (${f(c.position * 100, 0)}% up the range)`);
+    console.log(`     efficiency ${f(c.efficiency, 2)} (0 chop .. 1 trend)  variance ratio ${f(c.varianceRatio, 2)} (<1 mean-reverting, >1 trending)\n`);
+    console.log('If you had sold outside the prior range on every day:');
+    console.log('horizon  period    days  touched  closed outside  (up/down)   overshoot when outside: median   p95    max');
+    for (const h of horizons) {
+      for (const [label, st] of [['all', r.all[h]], [`last ${rc.recentYears}y`, r.recent[h]]]) {
+        console.log(
+          `${`${h}d`.padEnd(8)} ${label.padEnd(8)} ${String(st.n).padStart(5)}    ${p100(st.touchRate)}      ${p100(st.expireRate)}       ${p100(st.upShare)}/${p100(st.downShare).trim()}` +
+            `                  ${f(st.overshootMedianPct, 2).padStart(5)}%  ${f(st.overshootP95Pct, 2).padStart(5)}%  ${f(st.overshootMaxPct, 2).padStart(5)}%`,
+        );
+      }
+    }
+    console.log('\nDays overlap, so the effective sample is much smaller than "days". Past breach rates are not a forecast.');
+    return;
+  }
+
+  rows.sort((a, b) => a.all[sortH].expireRate - b.all[sortH].expireRate);
+  console.log(`\nRange scan: ${days}-day high/low, buffer ${bufferAtr} ATR, sorted by how often price CLOSED outside it ${sortH} days later (all history).`);
+  console.log('pair     width%  width/ATR  pos  effic  VR    | touched  closed-out  closed-out   p95 overshoot');
+  console.log(`                                              | ${`${sortH}d all`.padEnd(8)} ${`${sortH}d all`.padEnd(11)} ${`${sortH}d ${rc.recentYears}y`.padEnd(11)}  when out`);
+  for (const r of rows) {
+    const c = r.cur;
+    const a = r.all[sortH];
+    console.log(
+      `${r.pair}  ${f(c.widthPct, 2).padStart(6)}  ${f(c.widthAtr).padStart(9)}  ${f(c.position * 100, 0).padStart(3)}%  ${f(c.efficiency, 2).padStart(5)}  ${f(c.varianceRatio, 2).padStart(4)}  |   ${p100(a.touchRate)}      ${p100(a.expireRate)}       ${p100(r.recent[sortH].expireRate)}      ${f(a.overshootP95Pct, 2).padStart(5)}%`,
+    );
+  }
+  console.log('\nwidth/pos/effic/VR describe the CURRENT range. Lower effic and VR < 1 = choppier, more range-like.');
+  console.log('Use --pair AUDNZD for every horizon, --days N to change the range, --buffer-atr 1 to put "strikes" 1 ATR outside it.');
+}
+
 const HELP = `fx-desk (paper only)
 
   scan       [--pairs EURUSD,GBPUSD] [--tf 1h] [--source yahoo|oanda|csv|synthetic] [--no-filter]
@@ -398,13 +460,14 @@ const HELP = `fx-desk (paper only)
   momentum backtest  [--pairs ..] [--source ..] [--no-carry]  daily trend-following, in- vs out-of-sample
   momentum now       current target positions (logs a paper snapshot; --no-log to skip)
   momentum paper     P&L of logged snapshots
+  range              [--pairs ..] [--pair X] [--days 60] [--buffer-atr 0] [--horizon 10]   which pairs are ranging, and how often ranges break
 `;
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   const cmd = args._[0];
-  const cmds = { scan: cmdScan, score: cmdScore, report: cmdReport, backtest: cmdBacktest, fundamentals: cmdFundamentals, options: cmdOptions, momentum: cmdMomentum };
+  const cmds = { scan: cmdScan, score: cmdScore, report: cmdReport, backtest: cmdBacktest, fundamentals: cmdFundamentals, options: cmdOptions, momentum: cmdMomentum, range: cmdRange };
   if (!cmds[cmd]) return console.log(HELP);
   await cmds[cmd](args, config);
 }
