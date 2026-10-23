@@ -17,6 +17,7 @@ import { realizedVol, parkinsonVol, rvPercentile, logIv, ivRank } from './option
 import { openPaperStrangle, scorePaperStrangle } from './options/paper.js';
 import { stressPanel } from './options/stress.js';
 import { breachStudy, currentRange } from './analysis/range.js';
+import { rangeFadeBacktest } from './signals/rangeFade.js';
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -385,7 +386,49 @@ async function cmdMomentum(args, config) {
   console.log('\nRough guide: |t| < 2 is indistinguishable from luck. Spot returns exclude interest unless a rate history is supplied.');
 }
 
+async function cmdRangeBacktest(args, config) {
+  const p = config.rangeFade;
+  const list = args.pair ? String(args.pair) : args.pairs ? String(args.pairs) : null;
+  const pairs = list ? list.split(',').map((x) => parsePair(x).pair) : config.range.pairs;
+  const cut = Date.parse(p.outOfSampleStart);
+  console.log(`Range fade backtest, daily, source=${args.source ?? config.data.source}`);
+  console.log(
+    `Rule: ${p.days}-day range >= ${p.minWidthAtr} ATR wide; long in bottom ${p.entryZone * 100}%, short in top ${p.entryZone * 100}%; ` +
+      `stop ${p.stopAtr} ATR beyond the edge; target midpoint; timeout ${p.maxBars} bars; entry next open.`,
+  );
+  console.log(`In-sample < ${p.outOfSampleStart} <= out-of-sample. Judge on in-sample; look at out-of-sample once.\n`);
+  const all = [];
+  for (const pair of pairs) {
+    try {
+      const candles = await getCandles(pair, '1d', config, { ...dataOpts(args), days: undefined });
+      const trades = rangeFadeBacktest(pair, candles, p, config);
+      all.push(...trades);
+      printSummary(`${pair} in-sample`, summarize(trades.filter((t) => Date.parse(t.entryTime) < cut)));
+      printSummary(`${pair} out-of-sample`, summarize(trades.filter((t) => Date.parse(t.entryTime) >= cut)));
+    } catch (e) {
+      console.error(`${pair}: ${e.message}`);
+    }
+  }
+  for (const [label, rows] of [
+    ['IN-SAMPLE', all.filter((t) => Date.parse(t.entryTime) < cut)],
+    ['OUT-OF-SAMPLE', all.filter((t) => Date.parse(t.entryTime) >= cut)],
+  ]) {
+    console.log(`\nAll pairs pooled, ${label}:`);
+    printSummary('gross (no cost)', summarize(rows, 'grossPct'));
+    printSummary('real FX spread', summarize(rows));
+    for (const fee of config.backtest.compareFeePct) printSummary(`${fee}% round trip`, summarize(withFee(rows, fee)));
+    if (rows.length) {
+      const avg = (k) => rows.reduce((s, t) => s + t[k], 0) / rows.length;
+      const be = avg('riskPct') / (avg('riskPct') + avg('rewardPct'));
+      const outcomes = ['target', 'stop', 'timeout'].map((o) => `${o} ${((rows.filter((t) => t.outcome === o).length / rows.length) * 100).toFixed(0)}%`).join(', ');
+      console.log(`  avg risk ${pct(avg('riskPct'), 2)} vs reward ${pct(avg('rewardPct'), 2)} -> break-even win rate ~${(be * 100).toFixed(0)}% before costs; ${outcomes}`);
+    }
+  }
+  console.log('\nTrades never overlap within a pair. Gross PF ~1.0 = no edge; treat < ~1.15 gross as noise.');
+}
+
 async function cmdRange(args, config) {
+  if (args._[1] === 'backtest') return cmdRangeBacktest(args, config);
   const rc = config.range;
   const days = Number(args.days ?? rc.days);
   const bufferAtr = Number(args['buffer-atr'] ?? rc.bufferAtr);
@@ -461,6 +504,7 @@ const HELP = `fx-desk (paper only)
   momentum now       current target positions (logs a paper snapshot; --no-log to skip)
   momentum paper     P&L of logged snapshots
   range              [--pairs ..] [--pair X] [--days 60] [--buffer-atr 0] [--horizon 10]   which pairs are ranging, and how often ranges break
+  range backtest     [--pairs ..] [--pair X]   fade the range edges: in- vs out-of-sample, gross / spread / 0.3%
 `;
 
 async function main() {

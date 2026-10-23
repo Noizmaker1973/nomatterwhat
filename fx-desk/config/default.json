@@ -22,6 +22,18 @@
     },
     "USDCHF": {
       "spreadPips": 1.5
+    },
+    "NZDUSD": {
+      "spreadPips": 1.5
+    },
+    "AUDNZD": {
+      "spreadPips": 2.5
+    },
+    "EURGBP": {
+      "spreadPips": 1.2
+    },
+    "EURCHF": {
+      "spreadPips": 1.8
     }
   },
   "costs": {
@@ -123,5 +135,15 @@
     "bufferAtr": 0,
     "recentYears": 2,
     "sortHorizon": 10
+  },
+  "rangeFade": {
+    "_rule": "Fixed before testing. Judge on in-sample; look at out-of-sample once.",
+    "days": 60,
+    "entryZone": 0.15,
+    "minWidthAtr": 4,
+    "stopAtr": 1,
+    "maxBars": 20,
+    "atrPeriod": 14,
+    "outOfSampleStart": "2023-01-01"
   }
 }

@@ -98,6 +98,26 @@ node src/cli.js range --days 120 --buffer-atr 1   # 120-day range, "strikes" 1 A
 
 Days overlap, so the effective sample is far smaller than the day count. The pair lists and defaults are in `config.range`. Crosses can be scanned and traded spot, but `options` only maps the six USD pairs to CME futures.
 
+### Range fade backtest
+
+```bash
+node src/cli.js range backtest                 # all range pairs, in- vs out-of-sample
+node src/cli.js range backtest --pair EURGBP
+```
+
+**The rule is fixed in `config.rangeFade`:**
+
+- **Range:** the prior 60-day high/low, which must be at least 4 ATR wide.
+- **Entry:** long when the close is in the bottom 15% of the range, short in the top 15%. The fill is at the next open.
+- **Exits:** a stop 1 ATR beyond the range edge, a target at the midpoint, and a timeout after 20 bars.
+- **Fill rules:** if stop and target fall in the same bar, it counts as a stop. A bar that opens beyond a level (e.g. a weekend gap) fills at the open. If the entry open is already beyond the stop or target, the trade is skipped.
+- **One position per pair.**
+- **Output:** gross, real spread and 0.3% for each pair and pooled, split in- and out-of-sample. It also shows the average risk vs reward, the break-even win rate that implies, and the split of target / stop / timeout exits.
+
+Spreads for the crosses (`AUDNZD`, `EURGBP`, `EURCHF`, `NZDUSD`) are in `config.pairs`. Set them to what your broker actually quotes.
+
+On a pure random walk (60 × 10 years, about 9,400 trades) this engine shows no edge (t ≈ 0.3–1.5). Any real edge has to show up clearly above that.
+
 ## 2. Options analytics (CME FX futures options)
 
 US retail can't trade OTC FX options. Strangles on currencies go through CME options on FX futures, which means a futures account (IBKR, tastytrade, NinjaTrader, …). Spot pairs map to futures as follows:
@@ -139,7 +159,7 @@ config/default.json   strategy, spreads, options and filter settings
 config/rates.json     policy rates (update these)
 data/                 gitignored: signals.jsonl, outcomes.jsonl, strangles.jsonl,
                       strangle_outcomes.jsonl, iv/<future>.jsonl, cot/, calendar.json
-src/signals/          breakout detector, scoring, walk-forward backtest, momentum
+src/signals/          breakout detector, scoring, walk-forward backtest, momentum, range fade
 src/analysis/range.js range metrics and breach study
 src/options/          black76, vol, strangle, margin, stress, paper
 src/fundamentals/     rates, cot, calendar, filter

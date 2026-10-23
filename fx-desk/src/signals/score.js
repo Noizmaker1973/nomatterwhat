@@ -1,6 +1,6 @@
 // Score a signal against the candles that came AFTER it. Entry is the next bar's open
 // (no fill at the signal close you could not have traded). If stop and target are both
-// inside one bar we assume the stop hit first.
+// inside one bar we assume the stop hit first. A bar that opens beyond a level fills at the open.
 export function scoreSignal(signal, candles, feePct) {
   const start = candles.findIndex((c) => c.t > signal.t);
   if (start < 0) return null;
@@ -18,12 +18,12 @@ export function scoreSignal(signal, candles, feePct) {
     const hitStop = dir === 1 ? c.l <= stop : c.h >= stop;
     const hitTarget = dir === 1 ? c.h >= target : c.l <= target;
     if (hitStop) {
-      exit = stop;
+      exit = i > start && (c.o - stop) * dir < 0 ? c.o : stop; // gapped through: filled at the open
       outcome = 'stop';
       break;
     }
     if (hitTarget) {
-      exit = target;
+      exit = i > start && (c.o - target) * dir > 0 ? c.o : target;
       outcome = 'target';
       break;
     }
