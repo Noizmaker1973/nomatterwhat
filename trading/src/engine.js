@@ -131,6 +131,7 @@ class TradingEngine extends EventEmitter {
         this.signals[symbol].livePrice = price;
         this.updateLiveScore(symbol);
       }
+      this.trailStop(symbol, price);
       this.checkStops(symbol);
     }
     if (candleClosed) {
@@ -164,6 +165,19 @@ class TradingEngine extends EventEmitter {
     return { amount, value, held: value >= this.config.risk.minOrderSize };
   }
 
+  // Raises a trailing stop behind the highest price since entry. Never lowers it.
+  trailStop(symbol, price) {
+    const meta = this.positions[symbol];
+    const atr = this.signals[symbol]?.indicators?.atr;
+    if (!meta?.trailAtrMult || !atr || !(price > 0)) return;
+    meta.highest = Math.max(meta.highest || 0, price);
+    const stop = meta.highest - meta.trailAtrMult * atr;
+    if (stop > (meta.stopLoss || 0)) {
+      meta.stopLoss = stop;
+      writeJson(this.positionsFile, this.positions);
+    }
+  }
+
   // Protective exits run on every price update, regardless of auto-trade.
   checkStops(symbol) {
     const meta = this.positions[symbol];
@@ -171,7 +185,8 @@ class TradingEngine extends EventEmitter {
     if (!this.config.enforceStops || !meta || this.exiting.has(symbol) || !this.holding(symbol).held) return null;
     let order = null;
     if (meta.stopLoss && price <= meta.stopLoss) {
-      order = { symbol, side: 'sell', percent: 100, source: 'stop-loss', reason: `Stop-loss hit at ${fmt(meta.stopLoss)}` };
+      const label = meta.trailAtrMult ? 'trailing-stop' : 'stop-loss';
+      order = { symbol, side: 'sell', percent: 100, source: label, reason: `${meta.trailAtrMult ? 'Trailing stop' : 'Stop-loss'} hit at ${fmt(meta.stopLoss)}` };
     } else if (meta.takeProfit && price >= meta.takeProfit) {
       order = { symbol, side: 'sell', percent: 100, source: 'take-profit', reason: `Take-profit hit at ${fmt(meta.takeProfit)}` };
     }
@@ -185,6 +200,7 @@ class TradingEngine extends EventEmitter {
     const position = portfolio.positions.find((p) => p.symbol === symbol);
     const held = position && position.value >= this.config.risk.minOrderSize;
 
+    this.trailStop(symbol, this.prices[symbol]);
     const exit = this.checkStops(symbol);
     if (exit) return exit;
 
@@ -251,7 +267,10 @@ class TradingEngine extends EventEmitter {
         amount: newAmount,
         entryPrice: ((prev?.entryPrice || 0) * prevAmount + fill.price * fill.amount) / newAmount,
         stopLoss: signal?.stopLoss ?? prev?.stopLoss ?? null,
-        takeProfit: signal?.takeProfit ?? prev?.takeProfit ?? null,
+        takeProfit: signal ? signal.takeProfit : prev?.takeProfit ?? null,
+        // Trend mode: the stop trails the highest price since entry.
+        trailAtrMult: signal ? signal.trailAtrMult ?? null : prev?.trailAtrMult ?? null,
+        highest: Math.max(prev?.highest || 0, fill.price),
         openedAt: prev?.openedAt || Date.now(),
       };
     } else if (side === 'sell') {
@@ -332,6 +351,7 @@ class TradingEngine extends EventEmitter {
         pnlPct: entry ? ((price - entry) / entry) * 100 : null,
         stopLoss: meta?.stopLoss ?? null,
         takeProfit: meta?.takeProfit ?? null,
+        trailing: Boolean(meta?.trailAtrMult),
       });
     }
     const equity = cash + positions.reduce((sum, p) => sum + p.value, 0);
@@ -355,7 +375,7 @@ class TradingEngine extends EventEmitter {
       if (this.guardState.halted) return { action: 'WAIT', note: 'BUY signal, but the daily loss limit is reached. New buys resume tomorrow (UTC).' };
       // The stop/target were set at the candle close; the live price may have moved past them since.
       if (price <= s.stopLoss) return { action: 'WAIT', note: 'BUY signal, but the price has already fallen below its stop-loss. Wait for the next candle.' };
-      if (price >= s.takeProfit) return { action: 'WAIT', note: 'BUY signal, but the price already reached its target. Too late to enter; wait for the next setup.' };
+      if (s.takeProfit && price >= s.takeProfit) return { action: 'WAIT', note: 'BUY signal, but the price already reached its target. Too late to enter; wait for the next setup.' };
       const sized = sizeBuy(
         { equity: portfolio.equity, cash: portfolio.cash, price, stopLoss: s.stopLoss, currentPositionValue: 0 },
         this.config.risk
@@ -363,7 +383,7 @@ class TradingEngine extends EventEmitter {
       if (!sized.amount) return { action: 'WAIT', note: `BUY signal, but ${sized.reason.toLowerCase()}.` };
       const amount = sized.amount;
       const stopPct = ((s.stopLoss - price) / price) * 100;
-      const targetPct = ((s.takeProfit - price) / price) * 100;
+      const targetPct = s.takeProfit ? ((s.takeProfit - price) / price) * 100 : null;
       return {
         action: 'BUY',
         quoteAmount: amount,
@@ -371,11 +391,13 @@ class TradingEngine extends EventEmitter {
         price,
         stopLoss: s.stopLoss,
         takeProfit: s.takeProfit,
+        trailAtrMult: s.trailAtrMult,
+        trailDistance: s.trailAtrMult ? s.trailAtrMult * s.indicators.atr : null,
         stopPct,
         targetPct,
         riskAmount: (amount * -stopPct) / 100,
-        rewardAmount: (amount * targetPct) / 100,
-        rewardRisk: targetPct / -stopPct,
+        rewardAmount: targetPct === null ? null : (amount * targetPct) / 100,
+        rewardRisk: targetPct === null ? null : targetPct / -stopPct,
         equityPct: (amount / portfolio.equity) * 100,
       };
     }
@@ -397,7 +419,11 @@ class TradingEngine extends EventEmitter {
         note: s.signal === 'BUY' ? 'Still bullish. Keep your position.' : 'No exit signal. Keep your position.',
         stopLoss: position.stopLoss,
         takeProfit: position.takeProfit,
+        trailing: Boolean(this.positions[symbol]?.trailAtrMult),
       };
+    }
+    if (s.score >= buyThreshold) {
+      return { action: 'WAIT', note: 'Score is high enough, but trend mode only buys in an uptrend (price and EMA50 above EMA200).' };
     }
     return {
       action: 'WAIT',

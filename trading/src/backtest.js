@@ -6,17 +6,23 @@
 
 const config = require('./config');
 const { createMarketData } = require('./marketData');
-const { computeSeries, evaluateAt, MIN_CANDLES } = require('./strategy');
+const { computeSeries, evaluateAt, signalFromScore, MIN_CANDLES } = require('./strategy');
 const { sizeBuy } = require('./risk');
 const { FEE_RATE, SLIPPAGE } = require('./brokers/paperBroker');
 
-function backtest(candles, { startingBalance = 10000, risk = config.risk, strategy = config.strategy } = {}) {
-  const s = computeSeries(candles);
+// `series` lets callers (the optimizer) reuse computed indicators across runs,
+// and `scores` (from scoreSeries) reuses the per-candle scores as well.
+// `from`/`to` limit trading to part of the history; indicators before `from`
+// still count as warm-up, so there is no look-ahead.
+function backtest(candles, { startingBalance = 10000, risk = config.risk, strategy = config.strategy, series, scores, from = MIN_CANDLES, to = candles.length } = {}) {
+  const s = series || computeSeries(candles);
+  const start = Math.max(from, MIN_CANDLES);
   let cash = startingBalance;
-  let pos = null; // { amount, entry, stopLoss, takeProfit, cost }
+  let pos = null; // { amount, entry, stopLoss, takeProfit, trailAtrMult, highest, cost }
   const trades = [];
   let peak = startingBalance;
   let maxDrawdown = 0;
+  let exposureSum = 0;
 
   const close = (i, price, reason) => {
     const fill = price * (1 - SLIPPAGE);
@@ -26,22 +32,37 @@ function backtest(candles, { startingBalance = 10000, risk = config.risk, strate
     pos = null;
   };
 
-  for (let i = MIN_CANDLES; i < candles.length; i++) {
-    const [, , high, low, closePrice] = candles[i];
+  for (let i = start; i < to; i++) {
+    const [, open, high, low, closePrice] = candles[i];
 
-    // Stops are checked intra-bar. If both levels fall inside one candle we
-    // assume the stop hit first (the pessimistic case).
+    // Stops are checked intra-bar against levels known before this bar. If
+    // both levels fall inside one candle we assume the stop hit first (the
+    // pessimistic case). A gap through the stop fills at the open.
     if (pos) {
-      if (low <= pos.stopLoss) close(i, pos.stopLoss, 'stop-loss');
-      else if (high >= pos.takeProfit) close(i, pos.takeProfit, 'take-profit');
+      if (low <= pos.stopLoss) close(i, Math.min(pos.stopLoss, open), pos.trailAtrMult ? 'trailing stop' : 'stop-loss');
+      else if (pos.takeProfit && high >= pos.takeProfit) close(i, Math.max(pos.takeProfit, open), 'take-profit');
+    }
+    // Trailing stop: ratchet up behind the highest price, never down.
+    if (pos && pos.trailAtrMult) {
+      pos.highest = Math.max(pos.highest, high);
+      pos.stopLoss = Math.max(pos.stopLoss, pos.highest - pos.trailAtrMult * s.atr[i]);
     }
 
-    const sig = evaluateAt(s, i, strategy);
+    const sig = scores ? signalFromScore(scores, i, s, strategy) : evaluateAt(s, i, strategy);
     if (!pos && sig.signal === 'BUY') {
       const { amount } = sizeBuy({ equity: cash, cash, price: closePrice, stopLoss: sig.stopLoss }, risk);
       if (amount > 0) {
         const fill = closePrice * (1 + SLIPPAGE);
-        pos = { amount: (amount * (1 - FEE_RATE)) / fill, entry: fill, stopLoss: sig.stopLoss, takeProfit: sig.takeProfit, cost: amount, time: candles[i][0] };
+        pos = {
+          amount: (amount * (1 - FEE_RATE)) / fill,
+          entry: fill,
+          stopLoss: sig.stopLoss,
+          takeProfit: sig.takeProfit,
+          trailAtrMult: sig.trailAtrMult,
+          highest: closePrice,
+          cost: amount,
+          time: candles[i][0],
+        };
         cash -= amount;
       }
     } else if (pos && sig.signal === 'SELL') {
@@ -49,21 +70,25 @@ function backtest(candles, { startingBalance = 10000, risk = config.risk, strate
     }
 
     const equity = cash + (pos ? pos.amount * closePrice : 0);
+    if (pos) exposureSum += (pos.amount * closePrice) / equity;
     peak = Math.max(peak, equity);
     maxDrawdown = Math.max(maxDrawdown, (peak - equity) / peak);
   }
 
-  const last = candles[candles.length - 1][4];
+  const last = candles[to - 1][4];
   const finalEquity = cash + (pos ? pos.amount * last : 0);
   const wins = trades.filter((t) => t.pnl > 0);
   const grossWin = wins.reduce((a, t) => a + t.pnl, 0);
   const grossLoss = -trades.filter((t) => t.pnl <= 0).reduce((a, t) => a + t.pnl, 0);
 
   return {
+    grossWin,
+    grossLoss,
     startingBalance,
     finalEquity,
     returnPct: ((finalEquity - startingBalance) / startingBalance) * 100,
-    buyHoldPct: ((last - candles[MIN_CANDLES][4]) / candles[MIN_CANDLES][4]) * 100,
+    buyHoldPct: ((last - candles[start][4]) / candles[start][4]) * 100,
+    exposurePct: (exposureSum / Math.max(to - start, 1)) * 100,
     trades: trades.length,
     winRatePct: trades.length ? (wins.length / trades.length) * 100 : 0,
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0,
@@ -88,7 +113,10 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const symbols = args.bases.length ? args.bases.map((b) => `${b}/${config.quote}`) : config.symbols;
   const marketData = createMarketData(config);
-  console.log(`Backtest | ${marketData.name} | ${args.timeframe} | ${args.bars} bars | fees ${FEE_RATE * 100}% + slippage ${SLIPPAGE * 100}%\n`);
+  console.log(
+    `Backtest | ${marketData.name} | ${args.timeframe} | ${args.bars} bars | ${config.strategy.mode} mode | ` +
+      `fees ${FEE_RATE * 100}% + slippage ${SLIPPAGE * 100}%\n`
+  );
 
   const rows = [];
   for (const symbol of symbols) {
@@ -107,13 +135,16 @@ async function main() {
         'win %': r.winRatePct.toFixed(1),
         'profit factor': Number.isFinite(r.profitFactor) ? r.profitFactor.toFixed(2) : '∞',
         'max DD %': r.maxDrawdownPct.toFixed(2),
+        'exposure %': r.exposurePct.toFixed(1),
       });
     } catch (err) {
       rows.push({ symbol, period: `ERROR: ${err.message}` });
     }
   }
   console.table(rows);
-  console.log('\nPast performance does not guarantee future results.');
+  console.log('\nexposure % = average share of the account invested. Buy & hold is always 100%,');
+  console.log('so compare return % against buy&hold % x exposure % / 100 for a like-for-like view.');
+  console.log('Past performance does not guarantee future results.');
 }
 
 if (require.main === module) {

@@ -8,6 +8,7 @@
     "demo": "node src/server.js --demo",
     "signals": "node src/cli.js signals",
     "backtest": "node src/backtest.js",
+    "optimize": "node src/optimize.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {

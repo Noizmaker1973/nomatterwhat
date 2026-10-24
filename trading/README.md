@@ -38,6 +38,7 @@ npm run signals                          # print current signals in the terminal
 npm run backtest                         # backtest all coins (2000 bars of TIMEFRAME)
 npm run backtest -- BTC SOL --bars 3000 --timeframe 4h
 npm run backtest -- --demo               # any command accepts --demo for synthetic prices
+npm run optimize                         # find settings that held up on unseen history
 npm test                                 # unit tests
 ```
 
@@ -64,6 +65,19 @@ When starting live, the platform checks that your exchange lists every symbol in
 
 ## How signals are scored
 
+There are two strategy modes, chosen with `STRATEGY_MODE` in `.env`:
+
+| | `classic` (default) | `trend` |
+|---|---|---|
+| Idea | Mixes trend-following with buying dips / selling rallies | Ride uptrends, stay out of downtrends |
+| When it buys | Score reaches BUY_THRESHOLD | Score reaches BUY_THRESHOLD **and** price and EMA50 are above EMA200 |
+| "Overbought" RSI / price above upper Bollinger Band | Counts against buying | Treated as strength |
+| Exit | Stop-loss, fixed take-profit (TARGET_ATR_MULT × ATR), or SELL signal | **Trailing stop** that follows the highest price up by TRAIL_ATR_MULT × ATR and never moves down, or SELL signal |
+
+Classic mode tends to lose in strong one-way markets, because it keeps taking small profits and selling strength. Trend mode tends to lose in choppy sideways markets, getting stopped out repeatedly. Run the optimizer to see which suited recent history.
+
+### Classic mode scoring
+
 Each indicator votes, and the votes are summed into a score:
 
 | Indicator | Bullish | Bearish |
@@ -77,12 +91,46 @@ Each indicator votes, and the votes are summed into a score:
 
 **score ≥ BUY_THRESHOLD (3) → BUY, score ≤ SELL_THRESHOLD (−3) → SELL**, anything in between is HOLD. Each coin card shows this as a gauge: the red zone is SELL, the green zone is BUY, the lines are the trigger levels, and the dot is the current score. A hollow ring on the gauge shows the **live** score, which includes the still-forming candle, so you can watch a signal building. Signals use **closed candles only**, so they don't flicker while a candle is still forming. Raise the thresholds for fewer, stronger signals.
 
+### Trend mode scoring
+
+| Indicator | Bullish | Bearish |
+|---|---|---|
+| Trend: price and EMA50 vs EMA200 | +2 | −2 |
+| EMA 9/21 crossover (last 3 candles) | +2 (above: +0.5) | −2 (below: −0.5) |
+| MACD histogram crossover | +1.5 (rising: +0.5) | −1.5 (falling: −0.5) |
+| RSI(14) | +1.5 pullback over (back above 40 in an uptrend), +0.5 when ≥ 50 | −0.5 when < 50 |
+| Breakout above upper Bollinger Band in an uptrend | +0.5 | |
+| Close drops below EMA50 | | −1 (and SELL if not in an uptrend) |
+| Volume > 1.5× its 20-bar average | score ×1.25 | score ×1.25 |
+
 This is **spot trading only**: SELL means "sell what you hold". It never shorts or uses leverage.
 
-## Risk settings
+## Finding good settings: the optimizer
+
+```bash
+npm run optimize                                   # 1h and 4h candles, 3000 bars each
+npm run optimize -- BTC ETH --bars 4000 --timeframes 1h,4h,1d
+```
+
+It tries 288 combinations per timeframe (both modes × buy/sell thresholds × stop size × target or trail size) on your exchange's real history. To avoid settings that only fit the past:
+
+1. History is split: the **first two-thirds** (train) and the **last third** (test).
+2. Every combination is ranked on **train only**.
+3. The top 5 are then run on **test**, data they were never chosen on. **The TEST columns are the honest result.**
+4. Combinations with fewer than 3 trades per coin on train are ignored as luck.
+
+It prints your current settings next to the best ones, then the `.env` lines for the overall pick. If even the best setting lost money or had a profit factor below 1 on the test data, it says so and tells you not to trade it.
+
+**Reading the results:** `expo%` is how much of the account was invested on average. With the default risk settings (1% risk per trade, max 25% per coin) it is usually well under 25%, while buy and hold is always 100% invested. So a strategy can be good and still return far less than buy and hold in a rising market. It wins by being out of the market during drops. Compare drawdowns, not only returns.
+
+## Strategy and risk settings
 
 | Setting | Default | Meaning |
 |---|---|---|
+| `STRATEGY_MODE` | classic | `classic` or `trend` (see above) |
+| `STOP_ATR_MULT` | 2 | Initial stop-loss distance below entry, in ATRs |
+| `TARGET_ATR_MULT` | 3 | Classic: take-profit distance above entry, in ATRs |
+| `TRAIL_ATR_MULT` | 3 | Trend: trailing-stop distance below the highest price, in ATRs |
 | `RISK_PER_TRADE_PCT` | 1 | If the stop-loss is hit you lose about this % of equity. Position size = risk ÷ stop distance |
 | `MAX_POSITION_PCT` | 25 | Never put more than this % of equity in one coin |
 | `DAILY_LOSS_LIMIT_PCT` | 5 | Once equity is this % down for the day (UTC), new buys stop until tomorrow |
@@ -114,6 +162,7 @@ trading/
 │   │   ├── paperBroker.js # simulated fills (0.1% fee, 0.05% slippage)
 │   │   └── liveBroker.js  # real orders via CCXT
 │   ├── backtest.js        # historical simulation (CLI)
+│   ├── optimize.js        # train/test settings search (CLI)
 │   ├── cli.js             # terminal signal check
 │   └── notifier.js        # Discord / Telegram
 ├── public/                # dashboard (HTML/CSS/JS, no build step)

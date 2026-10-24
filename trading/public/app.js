@@ -48,7 +48,7 @@ function renderStatus(s) {
   $('#autoTrade').checked = s.autoTrade;
   $('#resetBtn').classList.toggle('hidden', s.mode !== 'paper');
   $('#meta').textContent =
-    `${s.exchange} · data: ${s.dataSource} · ${s.timeframe} candles · ` +
+    `${s.exchange} · data: ${s.dataSource} · ${s.timeframe} candles · ${s.strategy?.mode || 'classic'} strategy · ` +
     `last analysis ${s.lastScanAt ? time(s.lastScanAt) : '—'}`;
 
   const banner = $('#banner');
@@ -152,7 +152,8 @@ function renderGauge(card, s) {
 
   const round = (n) => Math.round(n * 100) / 100;
   let distance;
-  if (score >= buy) distance = 'in the BUY zone';
+  if (score >= buy && s.signal !== 'BUY') distance = 'above BUY level, but no uptrend (trend mode)';
+  else if (score >= buy) distance = 'in the BUY zone';
   else if (score <= sell) distance = 'in the SELL zone';
   else distance = `${round(buy - score)} pts to BUY · ${round(score - sell)} pts to SELL`;
   $('.score-label', card).textContent =
@@ -191,10 +192,16 @@ function renderSuggestion(card, s) {
     head.textContent = `Suggested: BUY ${money(g.quoteAmount)} ${quote} of ${coin}`;
     lines.push(
       `≈ ${fmt(g.baseAmount, 6)} ${coin} · ${fmt(g.equityPct, 1)}% of account`,
-      `Stop ${fmt(g.stopLoss)} (${fmt(g.stopPct, 2)}%) · max loss ${money(g.riskAmount)}`,
-      `Target ${fmt(g.takeProfit)} (+${fmt(g.targetPct, 2)}%) · gain ${money(g.rewardAmount)}`,
-      `Reward : risk ${fmt(g.rewardRisk, 1)} : 1 (before fees)`
+      `Stop ${fmt(g.stopLoss)} (${fmt(g.stopPct, 2)}%) · max loss ${money(g.riskAmount)}`
     );
+    if (g.trailAtrMult) {
+      lines.push(`No fixed target: the stop trails ${fmt(g.trailDistance)} below the highest price, so it only moves up`);
+    } else {
+      lines.push(
+        `Target ${fmt(g.takeProfit)} (+${fmt(g.targetPct, 2)}%) · gain ${money(g.rewardAmount)}`,
+        `Reward : risk ${fmt(g.rewardRisk, 1)} : 1 (before fees)`
+      );
+    }
     btn.textContent = 'Place this trade';
     btn.className = 'btn small suggest-btn buy';
     btn.onclick = () => order(s.symbol, 'buy', card, { quoteAmount: g.quoteAmount });
@@ -208,7 +215,7 @@ function renderSuggestion(card, s) {
     btn.onclick = () => order(s.symbol, 'sell', card, { percent: 100 });
   } else if (g.action === 'KEEP') {
     head.textContent = 'Suggested: keep holding';
-    lines.push(g.note, `Stop-loss ${fmt(g.stopLoss)} · take-profit ${fmt(g.takeProfit)}`);
+    lines.push(g.note, g.trailing ? `Trailing stop ${fmt(g.stopLoss)} (moves up with the price)` : `Stop-loss ${fmt(g.stopLoss)} · take-profit ${fmt(g.takeProfit)}`);
   } else if (g.action === 'AVOID') {
     head.textContent = "Suggested: don't buy";
     lines.push(g.note);
@@ -302,7 +309,11 @@ function renderPortfolio(p) {
     );
     for (const field of ['stopLoss', 'takeProfit']) {
       const td = el('td');
-      const span = el('span', { class: 'editable', title: 'Click to change' }, fmt(pos[field]));
+      let text = fmt(pos[field]);
+      if (field === 'stopLoss' && pos.trailing) text += ' ↑';
+      if (field === 'takeProfit' && pos.trailing && pos[field] === null) text = 'trailing';
+      const title = field === 'stopLoss' && pos.trailing ? 'Trailing stop: rises with the price, never falls. Click to change' : 'Click to change';
+      const span = el('span', { class: 'editable', title }, text);
       span.addEventListener('click', () => editStop(pos.symbol, field, pos[field]));
       td.appendChild(span);
       tr.appendChild(td);

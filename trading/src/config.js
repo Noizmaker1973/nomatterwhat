@@ -48,8 +48,12 @@ const config = {
   },
 
   strategy: {
+    mode: (env.STRATEGY_MODE || 'classic').toLowerCase() === 'trend' ? 'trend' : 'classic',
     buyThreshold: num(env.BUY_THRESHOLD, 3),
     sellThreshold: num(env.SELL_THRESHOLD, -3),
+    stopAtrMult: num(env.STOP_ATR_MULT, 2),
+    targetAtrMult: num(env.TARGET_ATR_MULT, 3),
+    trailAtrMult: num(env.TRAIL_ATR_MULT, 3),
   },
 
   port: num(env.PORT, 4000),
