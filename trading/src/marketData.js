@@ -151,10 +151,14 @@ class ExchangeMarketData {
 
     const runPolling = async () => {
       onStatus('polling', `Polling prices every ${this.pollMs / 1000}s`);
+      let failing = false;
       while (!stopped) {
         try {
           onPrices(await this.fetchPrices(symbols));
+          if (failing) onStatus('polling', 'Price polling recovered');
+          failing = false;
         } catch (err) {
+          failing = true;
           onStatus('error', `Price polling error: ${err.message}`);
         }
         await sleep(this.pollMs);
