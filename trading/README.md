@@ -39,6 +39,8 @@ npm run backtest                         # backtest all coins (2000 bars of TIME
 npm run backtest -- BTC SOL --bars 3000 --timeframe 4h
 npm run backtest -- --demo               # any command accepts --demo for synthetic prices
 npm run optimize                         # find settings that held up on unseen history
+npm run configure -- TIMEFRAME=1d MA_PERIOD=50   # change .env settings (keeps everything else)
+npm run configure                        # show the current strategy settings
 npm test                                 # unit tests
 ```
 
