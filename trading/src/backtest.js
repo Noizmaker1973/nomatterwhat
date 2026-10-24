@@ -7,7 +7,7 @@
 const config = require('./config');
 const { createMarketData } = require('./marketData');
 const { computeSeries, evaluateAt, signalFromScore, MIN_CANDLES } = require('./strategy');
-const { sizeBuy } = require('./risk');
+const { sizeBuy, shareOfAccount } = require('./risk');
 const { FEE_RATE, SLIPPAGE } = require('./brokers/paperBroker');
 
 // `series` lets callers (the optimizer) reuse computed indicators across runs,
@@ -98,11 +98,18 @@ function backtest(candles, { startingBalance = 10000, risk = config.risk, strate
   };
 }
 
+function checkTimeframe(tf) {
+  if (/^\d+$/.test(tf)) {
+    throw new Error(`Invalid timeframe "${tf}". In PowerShell, put timeframes in quotes, e.g. --timeframe "1d"`);
+  }
+  return tf;
+}
+
 function parseArgs(argv) {
   const args = { bases: [], bars: 2000, timeframe: config.timeframe };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--bars') args.bars = parseInt(argv[++i], 10);
-    else if (argv[i] === '--timeframe') args.timeframe = argv[++i];
+    else if (argv[i] === '--timeframe') args.timeframe = checkTimeframe(argv[++i]);
     else if (argv[i] === '--demo') continue; // handled in config.js
     else args.bases.push(argv[i].toUpperCase());
   }
@@ -115,6 +122,7 @@ async function main() {
   const marketData = createMarketData(config);
   console.log(
     `Backtest | ${marketData.name} | ${args.timeframe} | ${args.bars} bars | ${config.strategy.mode} mode | ` +
+      `each coin trades 1/${config.symbols.length} of the account | ` +
       `fees ${FEE_RATE * 100}% + slippage ${SLIPPAGE * 100}%\n`
   );
 
@@ -123,7 +131,8 @@ async function main() {
     try {
       const candles = await marketData.fetchHistory(symbol, args.timeframe, args.bars);
       if (candles.length <= MIN_CANDLES + 10) throw new Error(`only ${candles.length} candles returned`);
-      const r = backtest(candles);
+      // Each coin trades its share of one account, like on the platform.
+      const r = backtest(candles, { risk: shareOfAccount(config.risk, config.symbols.length) });
       const from = new Date(candles[MIN_CANDLES][0]).toISOString().slice(0, 10);
       const to = new Date(candles[candles.length - 1][0]).toISOString().slice(0, 10);
       rows.push({
@@ -142,8 +151,8 @@ async function main() {
     }
   }
   console.table(rows);
-  console.log('\nexposure % = average share of the account invested. Buy & hold is always 100%,');
-  console.log('so compare return % against buy&hold % x exposure % / 100 for a like-for-like view.');
+  console.log('\nreturn % and exposure % are for that coin\'s share of the account. exposure % = average');
+  console.log('share invested; buy & hold is always 100%, so also compare buy&hold % x exposure % / 100.');
   console.log('Past performance does not guarantee future results.');
 }
 
@@ -154,4 +163,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { backtest };
+module.exports = { backtest, checkTimeframe };

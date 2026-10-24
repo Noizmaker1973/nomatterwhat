@@ -382,7 +382,8 @@ class TradingEngine extends EventEmitter {
       );
       if (!sized.amount) return { action: 'WAIT', note: `BUY signal, but ${sized.reason.toLowerCase()}.` };
       const amount = sized.amount;
-      const stopPct = ((s.stopLoss - price) / price) * 100;
+      // Moving-average mode has no stop: it exits when the price closes below the average.
+      const stopPct = s.stopLoss === null ? null : ((s.stopLoss - price) / price) * 100;
       const targetPct = s.takeProfit ? ((s.takeProfit - price) / price) * 100 : null;
       return {
         action: 'BUY',
@@ -395,9 +396,13 @@ class TradingEngine extends EventEmitter {
         trailDistance: s.trailAtrMult ? s.trailAtrMult * s.indicators.atr : null,
         stopPct,
         targetPct,
-        riskAmount: (amount * -stopPct) / 100,
+        riskAmount: stopPct === null ? null : (amount * -stopPct) / 100,
         rewardAmount: targetPct === null ? null : (amount * targetPct) / 100,
-        rewardRisk: targetPct === null ? null : targetPct / -stopPct,
+        rewardRisk: targetPct === null || stopPct === null ? null : targetPct / -stopPct,
+        mode: s.mode,
+        ma: s.indicators.ma ?? null,
+        maPeriod: s.indicators.maPeriod ?? null,
+        sellThreshold: this.config.strategy.sellThreshold,
         equityPct: (amount / portfolio.equity) * 100,
       };
     }
@@ -420,10 +425,15 @@ class TradingEngine extends EventEmitter {
         stopLoss: position.stopLoss,
         takeProfit: position.takeProfit,
         trailing: Boolean(this.positions[symbol]?.trailAtrMult),
+        mode: s.mode,
+        maPeriod: s.indicators?.maPeriod ?? null,
       };
     }
     if (s.score >= buyThreshold) {
       return { action: 'WAIT', note: 'Score is high enough, but trend mode only buys in an uptrend (price and EMA50 above EMA200).' };
+    }
+    if (s.mode === 'ma') {
+      return { action: 'WAIT', note: `No trade. BUY needs the price ${round(buyThreshold - s.score)}% higher relative to its average.` };
     }
     return {
       action: 'WAIT',

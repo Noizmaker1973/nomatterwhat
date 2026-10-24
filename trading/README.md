@@ -67,14 +67,21 @@ When starting live, the platform checks that your exchange lists every symbol in
 
 There are two strategy modes, chosen with `STRATEGY_MODE` in `.env`:
 
-| | `classic` (default) | `trend` |
-|---|---|---|
-| Idea | Mixes trend-following with buying dips / selling rallies | Ride uptrends, stay out of downtrends |
-| When it buys | Score reaches BUY_THRESHOLD | Score reaches BUY_THRESHOLD **and** price and EMA50 are above EMA200 |
-| "Overbought" RSI / price above upper Bollinger Band | Counts against buying | Treated as strength |
-| Exit | Stop-loss, fixed take-profit (TARGET_ATR_MULT × ATR), or SELL signal | **Trailing stop** that follows the highest price up by TRAIL_ATR_MULT × ATR and never moves down, or SELL signal |
+| | `classic` (default) | `trend` | `ma` (moving average) |
+|---|---|---|---|
+| Idea | Mixes trend-following with buying dips / selling rallies | Ride uptrends, stay out of downtrends | Hold while the price is above its long-term average, cash while below |
+| When it buys | Score reaches BUY_THRESHOLD | Score reaches BUY_THRESHOLD **and** price and EMA50 are above EMA200 | Price is BUY_THRESHOLD % or more above its MA_PERIOD-candle average |
+| "Overbought" RSI / price above upper Bollinger Band | Counts against buying | Treated as strength | Ignored |
+| Exit | Stop-loss, fixed take-profit (TARGET_ATR_MULT × ATR), or SELL signal | **Trailing stop** that follows the highest price up by TRAIL_ATR_MULT × ATR and never moves down, or SELL signal | Price closes SELL_THRESHOLD % or more below the average. **No stop-loss** |
+| Trades | Many | Fewer | Very few |
 
-Classic mode tends to lose in strong one-way markets, because it keeps taking small profits and selling strength. Trend mode tends to lose in choppy sideways markets, getting stopped out repeatedly. Run the optimizer to see which suited recent history.
+Classic mode tends to lose in strong one-way markets, because it keeps taking small profits and selling strength. Trend mode tends to lose in choppy sideways markets, getting stopped out repeatedly. Moving-average mode trails buy and hold in a straight bull run and gives back part of each drop before it exits; its value is avoiding most of a long bear market. Run the optimizer to see which suited your exchange's history.
+
+### Moving-average mode
+
+With `TIMEFRAME=1d` and `MA_PERIOD=200` this is the classic **200-day rule**. On other timeframes the period is in candles, so `MA_PERIOD=200` on `4h` is about a 33-day average.
+
+The score on each coin card is the **% distance from the average** (e.g. `+4.2` = 4.2% above), and `BUY_THRESHOLD` / `SELL_THRESHOLD` are a buffer around the line. With `2` and `-2`, it buys at 2% above the average and sells at 2% below, so small wiggles around the line don't cause a trade every day. Positions have **no stop-loss**: each buy is sized at the max position cap (`MAX_POSITION_PCT`), and the exit is the close below the average. A sudden crash can therefore cost more than in the other modes before the exit triggers.
 
 ### Classic mode scoring
 
@@ -109,28 +116,33 @@ This is **spot trading only**: SELL means "sell what you hold". It never shorts 
 
 ```bash
 npm run optimize                                   # 1h and 4h candles, 3000 bars each
-npm run optimize -- BTC ETH --bars 4000 --timeframes 1h,4h,1d
+npm run optimize -- --timeframes "4h,1d" --bars 2500
+npm run optimize -- BTC ETH --bars 4000 --timeframes "1h,4h,1d"
 ```
 
-It tries 288 combinations per timeframe (both modes × buy/sell thresholds × stop size × target or trail size) on your exchange's real history. To avoid settings that only fit the past:
+In **PowerShell, keep the timeframe list in quotes**. Without them PowerShell reads `1d` as the number 1.
 
-1. History is split: the **first two-thirds** (train) and the **last third** (test).
-2. Every combination is ranked on **train only**.
-3. The top 5 are then run on **test**, data they were never chosen on. **The TEST columns are the honest result.**
-4. Combinations with fewer than 3 trades per coin on train are ignored as luck.
+It tries 352 combinations per timeframe on your exchange's real history: 144 classic and 144 trend (buy/sell thresholds × stop size × target or trail size), plus 64 moving-average (period 50/100/150/200 × buy and sell buffers). To avoid settings that only fit the past:
+
+1. Each coin trades **its share of one account** (a quarter each with four coins), with your risk settings applied to the whole account, exactly as on the platform.
+2. History is split: the **first two-thirds** (train) and the **last third** (test).
+3. Every combination is ranked on **train only**.
+4. The top 5 are then run on **test**, data they were never chosen on. **The TEST columns are the honest result.** The best setting of any mode that missed the top 5 is listed too, marked `best`.
+5. Combinations with fewer than 3 trades per coin on train are ignored as luck.
 
 It prints your current settings next to the best ones, then the `.env` lines for the overall pick. If even the best setting lost money or had a profit factor below 1 on the test data, it says so and tells you not to trade it.
 
-**Reading the results:** `expo%` is how much of the account was invested on average. With the default risk settings (1% risk per trade, max 25% per coin) it is usually well under 25%, while buy and hold is always 100% invested. So a strategy can be good and still return far less than buy and hold in a rising market. It wins by being out of the market during drops. Compare drawdowns, not only returns.
+**Reading the results:** `expo%` is how much of the account was invested on average. With the default risk settings (1% risk per trade, max 25% per coin, four coins) the stop-based modes are usually well under half invested, while buy and hold is always 100% invested. So a strategy can be good and still return far less than buy and hold in a rising market. It wins by being out of the market during drops. Compare drawdowns, not only returns.
 
 ## Strategy and risk settings
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `STRATEGY_MODE` | classic | `classic` or `trend` (see above) |
+| `STRATEGY_MODE` | classic | `classic`, `trend` or `ma` (see above) |
 | `STOP_ATR_MULT` | 2 | Initial stop-loss distance below entry, in ATRs |
 | `TARGET_ATR_MULT` | 3 | Classic: take-profit distance above entry, in ATRs |
 | `TRAIL_ATR_MULT` | 3 | Trend: trailing-stop distance below the highest price, in ATRs |
+| `MA_PERIOD` | 200 | Moving average: length of the average, in candles |
 | `RISK_PER_TRADE_PCT` | 1 | If the stop-loss is hit you lose about this % of equity. Position size = risk ÷ stop distance |
 | `MAX_POSITION_PCT` | 25 | Never put more than this % of equity in one coin |
 | `DAILY_LOSS_LIMIT_PCT` | 5 | Once equity is this % down for the day (UTC), new buys stop until tomorrow |

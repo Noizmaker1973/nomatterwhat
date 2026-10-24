@@ -3,10 +3,13 @@
 // How much quote currency (e.g. USDT) to spend on a BUY.
 // Sized so that hitting the stop-loss loses ~riskPerTradePct of equity,
 // capped by the max position size and available cash.
+// stopLoss === null means the strategy has no stop (moving-average mode):
+// the position is sized by the caps alone. undefined (no signal at all)
+// falls back to assuming a 5% stop.
 function sizeBuy({ equity, cash, price, stopLoss, currentPositionValue = 0 }, risk) {
   const riskAmount = equity * (risk.riskPerTradePct / 100);
   const stopDistancePct = stopLoss && stopLoss < price ? (price - stopLoss) / price : 0.05;
-  const byRisk = riskAmount / stopDistancePct;
+  const byRisk = stopLoss === null ? Infinity : riskAmount / stopDistancePct;
   const byMaxPosition = equity * (risk.maxPositionPct / 100) - currentPositionValue;
   const byCash = cash * 0.995; // leave room for fees
   const amount = Math.min(byRisk, byMaxPosition, byCash);
@@ -37,4 +40,16 @@ class DailyLossGuard {
   }
 }
 
-module.exports = { sizeBuy, DailyLossGuard };
+// Backtests run each coin on its own account. On the platform, N coins share
+// one account, so each coin's slice is 1/N of it, and the per-trade risk and
+// position cap (both % of the WHOLE account) are N times larger relative to
+// that slice. Averaging the slices' returns then gives the whole-account return.
+function shareOfAccount(risk, coins) {
+  return {
+    ...risk,
+    riskPerTradePct: risk.riskPerTradePct * coins,
+    maxPositionPct: Math.min(100, risk.maxPositionPct * coins),
+  };
+}
+
+module.exports = { sizeBuy, DailyLossGuard, shareOfAccount };

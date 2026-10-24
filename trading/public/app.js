@@ -96,14 +96,22 @@ function renderSignals(signals) {
     const i = s.indicators || {};
     const stats = $('.stats', card);
     stats.replaceChildren();
-    [
-      ['RSI', fmt(i.rsi, 1)],
-      ['ATR', fmt(i.atr)],
-      ['EMA 21', fmt(i.ema21)],
-      ['EMA 200', fmt(i.ema200)],
-      ['Stop', fmt(s.stopLoss)],
-      ['Target', fmt(s.takeProfit)],
-    ].forEach(([k, v]) => {
+    const rows = s.mode === 'ma'
+      ? [
+          [`MA ${i.maPeriod}`, fmt(i.ma)],
+          ['RSI', fmt(i.rsi, 1)],
+          ['EMA 21', fmt(i.ema21)],
+          ['ATR', fmt(i.atr)],
+        ]
+      : [
+          ['RSI', fmt(i.rsi, 1)],
+          ['ATR', fmt(i.atr)],
+          ['EMA 21', fmt(i.ema21)],
+          ['EMA 200', fmt(i.ema200)],
+          ['Stop', fmt(s.stopLoss)],
+          ['Target', fmt(s.takeProfit)],
+        ];
+    rows.forEach(([k, v]) => {
       const row = el('div');
       row.append(el('dt', {}, k), el('dd', {}, v));
       stats.appendChild(row);
@@ -114,14 +122,16 @@ function renderSignals(signals) {
   }
 }
 
-// The gauge spans scores -GAUGE_RANGE..+GAUGE_RANGE, with the SELL and BUY
-// zones starting at the configured trigger levels.
-const GAUGE_RANGE = 8;
-const gaugePos = (v) => 50 + (Math.max(-GAUGE_RANGE, Math.min(GAUGE_RANGE, v)) / GAUGE_RANGE) * 50;
+// The gauge spans scores -range..+range, with the SELL and BUY zones starting
+// at the configured trigger levels. In moving-average mode the score is a %
+// distance from the average, which swings wider, so the gauge does too.
+let gaugeRange = 8;
+const gaugePos = (v) => 50 + (Math.max(-gaugeRange, Math.min(gaugeRange, v)) / gaugeRange) * 50;
 
 function renderGauge(card, s) {
   const { buyThreshold: buy = 3, sellThreshold: sell = -3 } = state.status?.strategy || {};
   const score = s.score || 0;
+  gaugeRange = s.mode === 'ma' ? 20 : 8;
   const sellPos = gaugePos(sell);
   const buyPos = gaugePos(buy);
 
@@ -151,6 +161,15 @@ function renderGauge(card, s) {
   holdLbl.classList.toggle('hidden', buyPos - sellPos < 22);
 
   const round = (n) => Math.round(n * 100) / 100;
+  const ma = s.mode === 'ma';
+  sellLbl.textContent = `SELL ≤ ${sell}${ma ? '%' : ''}`;
+  buyLbl.textContent = `BUY ≥ ${buy}${ma ? '%' : ''}`;
+  if (ma) {
+    const side = score >= 0 ? 'above' : 'below';
+    $('.score-label', card).textContent = `Price is ${Math.abs(score)}% ${side} its ${s.indicators?.maPeriod}-candle average`;
+    $('.live-label', card).textContent = showLive ? `Live: ${live.score}% (candle still forming)` : '';
+    return;
+  }
   let distance;
   if (score >= buy && s.signal !== 'BUY') distance = 'above BUY level, but no uptrend (trend mode)';
   else if (score >= buy) distance = 'in the BUY zone';
@@ -190,11 +209,17 @@ function renderSuggestion(card, s) {
     head.textContent = 'Suggested trade: waiting for data';
   } else if (g.action === 'BUY') {
     head.textContent = `Suggested: BUY ${money(g.quoteAmount)} ${quote} of ${coin}`;
-    lines.push(
-      `≈ ${fmt(g.baseAmount, 6)} ${coin} · ${fmt(g.equityPct, 1)}% of account`,
-      `Stop ${fmt(g.stopLoss)} (${fmt(g.stopPct, 2)}%) · max loss ${money(g.riskAmount)}`
-    );
-    if (g.trailAtrMult) {
+    lines.push(`≈ ${fmt(g.baseAmount, 6)} ${coin} · ${fmt(g.equityPct, 1)}% of account`);
+    if (g.mode === 'ma') {
+      lines.push(
+        `No stop-loss or target: hold until the price closes ${Math.abs(g.sellThreshold)}% or more below its ${g.maPeriod}-candle average (now ${fmt(g.ma)})`
+      );
+    } else {
+      lines.push(`Stop ${fmt(g.stopLoss)} (${fmt(g.stopPct, 2)}%) · max loss ${money(g.riskAmount)}`);
+    }
+    if (g.mode === 'ma') {
+      // nothing more: the average is the exit
+    } else if (g.trailAtrMult) {
       lines.push(`No fixed target: the stop trails ${fmt(g.trailDistance)} below the highest price, so it only moves up`);
     } else {
       lines.push(
@@ -215,7 +240,10 @@ function renderSuggestion(card, s) {
     btn.onclick = () => order(s.symbol, 'sell', card, { percent: 100 });
   } else if (g.action === 'KEEP') {
     head.textContent = 'Suggested: keep holding';
-    lines.push(g.note, g.trailing ? `Trailing stop ${fmt(g.stopLoss)} (moves up with the price)` : `Stop-loss ${fmt(g.stopLoss)} · take-profit ${fmt(g.takeProfit)}`);
+    let exit = `Stop-loss ${fmt(g.stopLoss)} · take-profit ${fmt(g.takeProfit)}`;
+    if (g.mode === 'ma') exit = `Exits when the price closes below its ${g.maPeriod}-candle average`;
+    else if (g.trailing) exit = `Trailing stop ${fmt(g.stopLoss)} (moves up with the price)`;
+    lines.push(g.note, exit);
   } else if (g.action === 'AVOID') {
     head.textContent = "Suggested: don't buy";
     lines.push(g.note);

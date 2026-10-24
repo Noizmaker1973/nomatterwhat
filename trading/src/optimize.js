@@ -12,12 +12,17 @@
 const config = require('./config');
 const { createMarketData } = require('./marketData');
 const { computeSeries, scoreSeries, MIN_CANDLES } = require('./strategy');
-const { backtest } = require('./backtest');
+const { backtest, checkTimeframe } = require('./backtest');
+const { shareOfAccount } = require('./risk');
 
 const GRID = {
   classic: { buyThreshold: [2, 3, 4, 5], sellThreshold: [-2, -3, -4], stopAtrMult: [1.5, 2, 3], targetAtrMult: [2, 3, 4, 6] },
   trend: { buyThreshold: [2, 3, 4, 5], sellThreshold: [-2, -3, -4], stopAtrMult: [1.5, 2, 3], trailAtrMult: [2, 3, 4, 5] },
+  // Thresholds here are % above/below the average (a buffer against whipsaws).
+  ma: { maPeriod: [50, 100, 150, 200], buyThreshold: [0, 1, 2, 3], sellThreshold: [0, -1, -2, -3] },
 };
+const MA_PERIODS = GRID.ma.maPeriod;
+const scoresKey = (st) => (st.mode === 'ma' ? `ma${st.maPeriod}` : st.mode);
 const MIN_TRADES_PER_COIN = 3; // fewer trades than this is luck, not a result
 
 function combinations(grid) {
@@ -29,7 +34,7 @@ function combinations(grid) {
 
 // Runs one setting on every coin over [from, to) and combines the results as
 // if the account were split equally between the coins.
-function evaluate(datasets, strategy, window) {
+function evaluate(datasets, strategy, window, risk) {
   let returnSum = 0;
   let buyHoldSum = 0;
   let exposureSum = 0;
@@ -39,7 +44,8 @@ function evaluate(datasets, strategy, window) {
   let grossLoss = 0;
   let worstDrawdown = 0;
   for (const d of datasets) {
-    const r = backtest(d.candles, { series: d.series, scores: d.scores[strategy.mode], strategy, ...window(d) });
+    const scores = d.scores[scoresKey(strategy)];
+    const r = backtest(d.candles, { series: d.series, scores, strategy, risk, ...window(d) });
     returnSum += r.returnPct;
     buyHoldSum += r.buyHoldPct;
     exposureSum += r.exposurePct;
@@ -62,10 +68,12 @@ function evaluate(datasets, strategy, window) {
 }
 
 // Short form, e.g. "trend 4/-2 s2 tr3" = buy at 4, sell at -2, stop 2 ATR, trail 3 ATR.
-const describe = (st) =>
-  st.mode === 'trend'
-    ? `trend   ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tr${st.trailAtrMult}`
-    : `classic ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tg${st.targetAtrMult}`;
+// "ma200   +2%/-1%" = hold above the 200-candle average: buy 2% above it, sell 1% below.
+const describe = (st) => {
+  if (st.mode === 'ma') return `ma${st.maPeriod}`.padEnd(8) + `+${st.buyThreshold}%/${st.sellThreshold}%`;
+  if (st.mode === 'trend') return `trend   ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tr${st.trailAtrMult}`;
+  return `classic ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tg${st.targetAtrMult}`;
+};
 
 const pf = (v) => (Number.isFinite(v) ? v.toFixed(2) : 'inf');
 
@@ -105,7 +113,7 @@ function printTable(rows) {
 }
 
 // Ranks every combination on the training window. Returns the best few.
-function optimize(datasets, { top = 5 } = {}) {
+function optimize(datasets, { top = 5, risk = shareOfAccount(config.risk, datasets.length) } = {}) {
   const trainWindow = (d) => ({ from: MIN_CANDLES, to: d.split });
   const testWindow = (d) => ({ from: d.split, to: d.candles.length });
   const minTrades = MIN_TRADES_PER_COIN * datasets.length;
@@ -114,25 +122,29 @@ function optimize(datasets, { top = 5 } = {}) {
   for (const mode of Object.keys(GRID)) {
     for (const combo of combinations(GRID[mode])) {
       const strategy = { mode, ...combo };
-      const train = evaluate(datasets, strategy, trainWindow);
+      const train = evaluate(datasets, strategy, trainWindow, risk);
       if (train.trades < minTrades) continue;
       ranked.push({ strategy, train });
     }
   }
   // Highest training return first; profit factor breaks ties.
   ranked.sort((a, b) => b.train.returnPct - a.train.returnPct || b.train.profitFactor - a.train.profitFactor);
-  const best = ranked.slice(0, top).map((r) => ({ ...r, test: evaluate(datasets, r.strategy, testWindow) }));
-  return { best, tried: ranked.length, evaluate: (strategy) => ({
-    train: evaluate(datasets, strategy, trainWindow),
-    test: evaluate(datasets, strategy, testWindow),
-  }) };
+  const best = ranked.slice(0, top).map((r) => ({ ...r, test: evaluate(datasets, r.strategy, testWindow, risk) }));
+  const both = (strategy) => ({
+    train: evaluate(datasets, strategy, trainWindow, risk),
+    test: evaluate(datasets, strategy, testWindow, risk),
+  });
+  // Best of each mode too, so modes can be compared even when one dominates the top list.
+  const bestByMode = {};
+  for (const r of ranked) if (!bestByMode[r.strategy.mode]) bestByMode[r.strategy.mode] = { ...r, test: both(r.strategy).test };
+  return { best, bestByMode, tried: ranked.length, evaluate: both };
 }
 
 function parseArgs(argv) {
   const args = { bases: [], bars: 3000, timeframes: ['1h', '4h'], train: 2 / 3 };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--bars') args.bars = parseInt(argv[++i], 10);
-    else if (argv[i] === '--timeframes') args.timeframes = argv[++i].split(',').map((t) => t.trim());
+    else if (argv[i] === '--timeframes') args.timeframes = argv[++i].split(',').map((t) => checkTimeframe(t.trim()));
     else if (argv[i] === '--train') args.train = parseFloat(argv[++i]);
     else if (argv[i] === '--demo') continue; // handled in config.js
     else args.bases.push(argv[i].toUpperCase());
@@ -153,7 +165,11 @@ async function loadDatasets(marketData, symbols, timeframe, bars, trainShare) {
       symbol,
       candles,
       series,
-      scores: { classic: scoreSeries(series, 'classic'), trend: scoreSeries(series, 'trend') },
+      scores: {
+        classic: scoreSeries(series, 'classic'),
+        trend: scoreSeries(series, 'trend'),
+        ...Object.fromEntries(MA_PERIODS.map((p) => [`ma${p}`, scoreSeries(series, 'ma', { maPeriod: p })])),
+      },
       split: MIN_CANDLES + Math.floor((candles.length - MIN_CANDLES) * trainShare),
     });
   }
@@ -167,6 +183,7 @@ async function main() {
   const symbols = args.bases.length ? args.bases.map((b) => `${b}/${config.quote}`) : config.symbols;
   const marketData = createMarketData(config);
   const perMode = Object.values(GRID).map((g) => combinations(g).length);
+  console.log(`Each coin trades 1/${symbols.length} of the account, with your risk settings applied to the whole account.`);
   console.log(`Optimizer | ${marketData.name} | ${symbols.join(', ')} | ${args.bars} bars per timeframe`);
   console.log(`Trying ${perMode.reduce((a, b) => a + b)} settings per timeframe, ranked on the first ${Math.round(args.train * 100)}% of history, checked on the rest.\n`);
 
@@ -192,6 +209,12 @@ async function main() {
     rows.push(row(`now ${describe(current)}`, tf, now.train, now.test));
     result.best.forEach((r, k) => {
       rows.push(row(`#${k + 1}  ${describe(r.strategy)}`, tf, r.train, r.test));
+      if (k === result.best.length - 1) {
+        // Show each mode's best if it didn't make the top list.
+        for (const [mode, b] of Object.entries(result.bestByMode)) {
+          if (!result.best.some((x) => x.strategy.mode === mode)) rows.push(row(`best ${describe(b.strategy)}`, tf, b.train, b.test));
+        }
+      }
       // Pick between timeframes by training profit factor: it is comparable
       // across different date ranges, and choosing by test results would let
       // the test data leak into the decision.
@@ -202,8 +225,10 @@ async function main() {
   console.log('');
   printTable(rows);
   console.log('');
-  console.log('setting: "now" = your current settings, #1-#5 = best found. "trend 4/-2 s2 tr3" means');
-  console.log('  trend mode, buy at score 4, sell at -2, stop 2 ATR, trail 3 ATR (tg = fixed target, classic).');
+  console.log('setting: "now" = your current settings, #1-#5 = best found, "best" = best of a mode');
+  console.log('  that missed the top 5. "trend 4/-2 s2 tr3" = trend mode, buy at score 4, sell at -2,');
+  console.log('  stop 2 ATR, trail 3 ATR (tg = fixed target, classic). "ma200 +2%/-1%" = hold above the');
+  console.log('  200-candle average: buy 2% above it, sell 1% below it (on 1d candles: the 200-day average).');
   console.log('ret% = whole-account return, coins split equally. PF = profit factor (above 1 = profitable).');
   console.log('expo% = average share of the account invested. b&h% = buy and hold over the same period.');
   console.log('Settings were chosen on TRAIN only. TEST is data they never saw: the honest score.\n');
@@ -224,9 +249,10 @@ async function main() {
   console.log(`  STRATEGY_MODE=${st.mode}`);
   console.log(`  BUY_THRESHOLD=${st.buyThreshold}`);
   console.log(`  SELL_THRESHOLD=${st.sellThreshold}`);
-  console.log(`  STOP_ATR_MULT=${st.stopAtrMult}`);
+  if (st.mode === 'ma') console.log(`  MA_PERIOD=${st.maPeriod}`);
+  else console.log(`  STOP_ATR_MULT=${st.stopAtrMult}`);
   if (st.mode === 'trend') console.log(`  TRAIL_ATR_MULT=${st.trailAtrMult}`);
-  else console.log(`  TARGET_ATR_MULT=${st.targetAtrMult}`);
+  if (st.mode === 'classic') console.log(`  TARGET_ATR_MULT=${st.targetAtrMult}`);
   console.log('\nPast performance does not guarantee future results.');
 }
 

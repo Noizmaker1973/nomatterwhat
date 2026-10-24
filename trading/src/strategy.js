@@ -10,6 +10,11 @@
 // trend:   only buys in an uptrend, treats strength as strength (no
 //          "overbought" penalty), and has no fixed target: a trailing stop
 //          follows the price up so winners can run.
+// ma:      the long-term moving-average rule. Hold while the price is above
+//          its N-candle simple average, cash while below. The "score" is the
+//          % distance from the average, so the thresholds are a buffer that
+//          stops small wiggles around the line from causing trades. With
+//          TIMEFRAME=1d and maPeriod 200 this is the classic 200-day rule.
 //
 // Stops are set from ATR (volatility), so they widen in choppy markets and
 // tighten in calm ones.
@@ -23,6 +28,7 @@ const DEFAULTS = {
   stopAtrMult: 2,
   targetAtrMult: 3, // classic only
   trailAtrMult: 3, // trend only: stop trails the highest price by this many ATRs
+  maPeriod: 200, // ma only
 };
 
 const MIN_CANDLES = 210; // EMA-200 needs at least 200 bars of history
@@ -77,6 +83,8 @@ function evaluateAt(s, i, options = {}) {
     return { ...base, reasons: ['Not enough price history yet'] };
   }
 
+  if (opts.mode === 'ma') return evaluateMa(s, i, opts, base);
+
   const reasons = [];
   let score = 0;
   const vote = (points, text) => {
@@ -119,6 +127,48 @@ function evaluateAt(s, i, options = {}) {
       bbMiddle: s.bb.middle[i],
       bbLower: s.bb.lower[i],
       atr: a,
+    },
+  };
+}
+
+function smaOf(s, period) {
+  s.smaCache = s.smaCache || {};
+  if (!s.smaCache[period]) s.smaCache[period] = ind.sma(s.closes, period);
+  return s.smaCache[period];
+}
+
+function evaluateMa(s, i, opts, base) {
+  const ma = smaOf(s, opts.maPeriod)[i];
+  if (ma === null || ma === undefined) return { ...base, reasons: ['Not enough price history yet'] };
+  const close = s.closes[i];
+  const score = Math.round((close / ma - 1) * 10000) / 100; // % above (+) or below (-) the average
+  let signal = 'HOLD';
+  if (score >= opts.buyThreshold) signal = 'BUY';
+  else if (score <= opts.sellThreshold) signal = 'SELL';
+  const side = score >= 0 ? 'above' : 'below';
+  const reasons = [
+    `Price is ${Math.abs(score)}% ${side} its ${opts.maPeriod}-candle average (${ma.toFixed(2)})`,
+    `Buy at ${opts.buyThreshold}% or more above it, sell at ${Math.abs(opts.sellThreshold)}% or more below it`,
+  ];
+  if (signal === 'HOLD') reasons.push('Inside the buffer zone: no change');
+  return {
+    ...base,
+    mode: 'ma',
+    signal,
+    score,
+    confidence: Math.min(Math.abs(score) / 10, 1),
+    reasons,
+    // No stop or target: the exit is the price closing below the average.
+    stopLoss: null,
+    takeProfit: null,
+    trailAtrMult: null,
+    indicators: {
+      ma,
+      maPeriod: opts.maPeriod,
+      rsi: s.rsi[i],
+      ema21: s.ema21[i],
+      ema200: s.ema200[i],
+      atr: s.atr[i],
     },
   };
 }
@@ -221,10 +271,10 @@ function scoreTrend(s, i, vote) {
 
 // Scores every candle once for a given mode. The score doesn't depend on
 // thresholds or stop sizes, so the optimizer can try many of those cheaply.
-function scoreSeries(s, mode) {
+function scoreSeries(s, mode, extra = {}) {
   const out = { mode, score: [], canBuy: [], forceSell: [] };
   // Thresholds that never trigger, so we can read canBuy/forceSell separately.
-  const probe = { mode, buyThreshold: -Infinity, sellThreshold: -Infinity };
+  const probe = { mode, ...extra, buyThreshold: -Infinity, sellThreshold: -Infinity };
   for (let i = 0; i < s.closes.length; i++) {
     const r = evaluateAt(s, i, probe);
     out.score[i] = r.score;
@@ -243,6 +293,7 @@ function signalFromScore(scores, i, s, options = {}) {
   else if (score <= opts.sellThreshold || scores.forceSell[i]) signal = 'SELL';
   const close = s.closes[i];
   const a = s.atr[i];
+  if (opts.mode === 'ma') return { signal, score, stopLoss: null, takeProfit: null, trailAtrMult: null };
   const trend = opts.mode === 'trend';
   return {
     signal,

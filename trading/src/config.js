@@ -48,12 +48,13 @@ const config = {
   },
 
   strategy: {
-    mode: (env.STRATEGY_MODE || 'classic').toLowerCase() === 'trend' ? 'trend' : 'classic',
+    mode: ['trend', 'ma'].includes((env.STRATEGY_MODE || '').toLowerCase()) ? env.STRATEGY_MODE.toLowerCase() : 'classic',
     buyThreshold: num(env.BUY_THRESHOLD, 3),
     sellThreshold: num(env.SELL_THRESHOLD, -3),
     stopAtrMult: num(env.STOP_ATR_MULT, 2),
     targetAtrMult: num(env.TARGET_ATR_MULT, 3),
     trailAtrMult: num(env.TRAIL_ATR_MULT, 3),
+    maPeriod: Math.round(num(env.MA_PERIOD, 200)),
   },
 
   port: num(env.PORT, 4000),
