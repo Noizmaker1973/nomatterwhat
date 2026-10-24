@@ -43,14 +43,6 @@ class TradingEngine extends EventEmitter {
     this.tradesFile = path.join(config.dataDir, `${broker.mode}-trades.json`);
     this.positions = readJson(this.positionsFile, {});
     this.trades = readJson(this.tradesFile, []);
-    // Open shorts: { symbol: { entryPrice, stopLoss, takeProfit, trailAtrMult, lowest, openedAt } }
-    this.shortsFile = path.join(config.dataDir, `${broker.mode}-shorts.json`);
-    this.shorts = readJson(this.shortsFile, {});
-    this.allowShort = Boolean(config.strategy.allowShort && broker.supportsShort);
-    this.shortBlockedReason =
-      config.strategy.allowShort && !broker.supportsShort
-        ? 'ALLOW_SHORT is ignored in live mode: Binance.US spot accounts cannot short. Shorting works in paper mode only.'
-        : null;
     // Last signal per coin, saved so a restart doesn't re-alert the same signal.
     this.signalStateFile = path.join(config.dataDir, 'signal-state.json');
     this.lastSignal = readJson(this.signalStateFile, {});
@@ -67,7 +59,7 @@ class TradingEngine extends EventEmitter {
       this.guardState = this.lossGuard.update(portfolio.equity);
       for (const symbol of this.config.symbols) {
         if (!this.signals[symbol]) continue;
-        await this.manageSymbol(symbol);
+        await this.manageSymbol(symbol, portfolio);
       }
       this.lastScanAt = Date.now();
       this.emit('scan');
@@ -175,60 +167,21 @@ class TradingEngine extends EventEmitter {
     return { amount, value, held: value >= this.config.risk.minOrderSize };
   }
 
-  shortHolding(symbol) {
-    const amount = this.balances?.shorts?.[symbol.split('/')[0]]?.amount || 0;
-    const value = amount * (this.prices[symbol] || 0);
-    return { amount, value, held: value >= this.config.risk.minOrderSize };
-  }
-
-  // Moves trailing stops towards profit, never back: up behind the highest
-  // price for a long, down above the lowest price for a short.
+  // Raises a trailing stop behind the highest price since entry. Never lowers it.
   trailStop(symbol, price) {
+    const meta = this.positions[symbol];
     const atr = this.signals[symbol]?.indicators?.atr;
-    if (!atr || !(price > 0)) return;
-    const long = this.positions[symbol];
-    if (long?.trailAtrMult) {
-      long.highest = Math.max(long.highest || 0, price);
-      const stop = long.highest - long.trailAtrMult * atr;
-      if (stop > (long.stopLoss || 0)) {
-        long.stopLoss = stop;
-        writeJson(this.positionsFile, this.positions);
-      }
-    }
-    const short = this.shorts[symbol];
-    if (short?.trailAtrMult) {
-      short.lowest = Math.min(short.lowest || Infinity, price);
-      const stop = short.lowest + short.trailAtrMult * atr;
-      if (!short.stopLoss || stop < short.stopLoss) {
-        short.stopLoss = stop;
-        writeJson(this.shortsFile, this.shorts);
-      }
+    if (!meta?.trailAtrMult || !atr || !(price > 0)) return;
+    meta.highest = Math.max(meta.highest || 0, price);
+    const stop = meta.highest - meta.trailAtrMult * atr;
+    if (stop > (meta.stopLoss || 0)) {
+      meta.stopLoss = stop;
+      writeJson(this.positionsFile, this.positions);
     }
   }
 
   // Protective exits run on every price update, regardless of auto-trade.
   checkStops(symbol) {
-    return this.checkLongStops(symbol) || this.checkShortStops(symbol);
-  }
-
-  checkShortStops(symbol) {
-    const meta = this.shorts[symbol];
-    const price = this.prices[symbol];
-    const key = `${symbol}:short`;
-    if (!this.config.enforceStops || !meta || this.exiting.has(key) || !this.shortHolding(symbol).held) return null;
-    let order = null;
-    if (meta.stopLoss && price >= meta.stopLoss) {
-      const label = meta.trailAtrMult ? 'trailing-stop' : 'stop-loss';
-      order = { symbol, side: 'cover', percent: 100, source: label, reason: `Short ${meta.trailAtrMult ? 'trailing stop' : 'stop-loss'} hit at ${fmt(meta.stopLoss)}` };
-    } else if (meta.takeProfit && price <= meta.takeProfit) {
-      order = { symbol, side: 'cover', percent: 100, source: 'take-profit', reason: `Short take-profit hit at ${fmt(meta.takeProfit)}` };
-    }
-    if (!order) return null;
-    this.exiting.add(key);
-    return this.safeOrder(order).finally(() => this.exiting.delete(key));
-  }
-
-  checkLongStops(symbol) {
     const meta = this.positions[symbol];
     const price = this.prices[symbol];
     if (!this.config.enforceStops || !meta || this.exiting.has(symbol) || !this.holding(symbol).held) return null;
@@ -244,38 +197,24 @@ class TradingEngine extends EventEmitter {
     return this.safeOrder(order).finally(() => this.exiting.delete(symbol));
   }
 
-  async manageSymbol(symbol) {
+  async manageSymbol(symbol, portfolio) {
     const signal = this.signals[symbol];
+    const position = portfolio.positions.find((p) => p.symbol === symbol);
+    const held = position && position.value >= this.config.risk.minOrderSize;
 
     this.trailStop(symbol, this.prices[symbol]);
     const exit = this.checkStops(symbol);
     if (exit) return exit;
 
     if (!this.autoTrade || this.lastActedCandle[symbol] === signal.time) return;
-    const held = this.holding(symbol).held;
-    const shorted = this.shortHolding(symbol).held;
-    const why = `${signal.signal} signal (score ${signal.score})`;
 
-    // BUY: cover any short, then buy. SELL: sell any long, then (if enabled
-    // and allowed in this market) open a short. Same order as the backtester.
-    if (signal.signal === 'BUY') {
-      if (shorted) {
-        this.lastActedCandle[symbol] = signal.time;
-        await this.safeOrder({ symbol, side: 'cover', percent: 100, source: 'auto', reason: why });
-      }
-      if (!held && !this.guardState.halted) {
-        this.lastActedCandle[symbol] = signal.time;
-        await this.safeOrder({ symbol, side: 'buy', source: 'auto', reason: why });
-      }
-    } else if (signal.signal === 'SELL') {
-      if (held) {
-        this.lastActedCandle[symbol] = signal.time;
-        await this.safeOrder({ symbol, side: 'sell', percent: 100, source: 'auto', reason: why });
-      }
-      if (this.allowShort && signal.canShort && !shorted && !this.guardState.halted) {
-        this.lastActedCandle[symbol] = signal.time;
-        await this.safeOrder({ symbol, side: 'short', source: 'auto', reason: why });
-      }
+    if (signal.signal === 'BUY' && !held) {
+      if (this.guardState.halted) return;
+      this.lastActedCandle[symbol] = signal.time;
+      await this.safeOrder({ symbol, side: 'buy', source: 'auto', reason: `BUY signal (score ${signal.score})` });
+    } else if (signal.signal === 'SELL' && held) {
+      this.lastActedCandle[symbol] = signal.time;
+      await this.safeOrder({ symbol, side: 'sell', percent: 100, source: 'auto', reason: `SELL signal (score ${signal.score})` });
     }
   }
 
@@ -303,8 +242,7 @@ class TradingEngine extends EventEmitter {
     if (!this.config.symbols.includes(symbol)) throw new Error(`Unknown symbol ${symbol}`);
     const price = this.prices[symbol] || (await this.marketData.fetchPrice(symbol));
     const portfolio = await this.getPortfolio({ fresh: true });
-    const position = portfolio.positions.find((p) => p.symbol === symbol && p.side === 'long');
-    const shortPosition = portfolio.positions.find((p) => p.symbol === symbol && p.side === 'short');
+    const position = portfolio.positions.find((p) => p.symbol === symbol);
     const signal = this.signals[symbol];
     let fill;
 
@@ -346,38 +284,6 @@ class TradingEngine extends EventEmitter {
       if (meta?.entryPrice) fill.realizedPnl = (fill.price - meta.entryPrice) * fill.amount - fill.fee;
       if (pct >= 100) delete this.positions[symbol];
       else if (meta) meta.amount = Math.max(meta.amount - fill.amount, 0);
-    } else if (side === 'short') {
-      if (!this.allowShort) throw new Error(this.shortBlockedReason || 'Shorting is off. Set ALLOW_SHORT=true in .env to enable it (paper mode).');
-      if (this.guardState.halted) {
-        throw new Error(`Daily loss limit (${this.config.risk.dailyLossLimitPct}%) reached - new positions paused until tomorrow (UTC)`);
-      }
-      let amount = Number(quoteAmount);
-      if (!amount) {
-        const sized = sizeBuy(
-          { equity: portfolio.equity, cash: portfolio.cash, price, stopLoss: signal?.shortStop, side: 'short', currentPositionValue: shortPosition?.value || 0 },
-          this.config.risk
-        );
-        if (!sized.amount) throw new Error(sized.reason);
-        amount = sized.amount;
-      }
-      if (amount < this.config.risk.minOrderSize) throw new Error(`Minimum order is ${this.config.risk.minOrderSize} ${this.config.quote}`);
-      fill = await this.broker.openShort(symbol, amount, price);
-      const prev = this.shorts[symbol];
-      this.shorts[symbol] = {
-        stopLoss: signal ? signal.shortStop : prev?.stopLoss ?? null,
-        takeProfit: signal ? signal.shortTarget : prev?.takeProfit ?? null,
-        trailAtrMult: signal ? signal.trailAtrMult ?? null : prev?.trailAtrMult ?? null,
-        lowest: Math.min(prev?.lowest || Infinity, fill.price),
-        openedAt: prev?.openedAt || Date.now(),
-      };
-      writeJson(this.shortsFile, this.shorts);
-    } else if (side === 'cover') {
-      if (!shortPosition) throw new Error(`No ${symbol.split('/')[0]} short to cover`);
-      const pct = Math.min(Math.max(Number(percent) || 100, 0), 100);
-      fill = await this.broker.coverShort(symbol, shortPosition.amount * (pct / 100), price);
-      fill.realizedPnl = fill.grossPnl - fill.fee;
-      if (pct >= 100) delete this.shorts[symbol];
-      writeJson(this.shortsFile, this.shorts);
     } else {
       throw new Error(`Invalid side "${side}"`);
     }
@@ -407,8 +313,6 @@ class TradingEngine extends EventEmitter {
 
   clearHistory() {
     this.positions = {};
-    this.shorts = {};
-    writeJson(this.shortsFile, this.shorts);
     this.trades = [];
     writeJson(this.positionsFile, this.positions);
     writeJson(this.tradesFile, this.trades);
@@ -429,7 +333,7 @@ class TradingEngine extends EventEmitter {
   }
 
   portfolioSnapshot() {
-    const { cash, holdings, shorts = {} } = this.balances || { cash: 0, holdings: {} };
+    const { cash, holdings } = this.balances || { cash: 0, holdings: {} };
     const positions = [];
     for (const symbol of this.config.symbols) {
       const base = symbol.split('/')[0];
@@ -441,7 +345,6 @@ class TradingEngine extends EventEmitter {
       const entry = meta?.entryPrice;
       positions.push({
         symbol,
-        side: 'long',
         amount,
         price,
         value,
@@ -453,33 +356,8 @@ class TradingEngine extends EventEmitter {
         trailing: Boolean(meta?.trailAtrMult),
       });
     }
-    // Shorts: `value` is the size of the bet; the account gains (entry - price).
-    let collateral = 0;
-    for (const symbol of this.config.symbols) {
-      const short = shorts[symbol.split('/')[0]];
-      if (!short || short.amount <= 0) continue;
-      const price = this.prices[symbol] || 0;
-      const meta = this.shorts[symbol];
-      collateral += short.amount * short.entry;
-      positions.push({
-        symbol,
-        side: 'short',
-        amount: short.amount,
-        price,
-        value: short.amount * price,
-        entryPrice: short.entry,
-        pnl: (short.entry - price) * short.amount,
-        pnlPct: ((short.entry - price) / short.entry) * 100,
-        stopLoss: meta?.stopLoss ?? null,
-        takeProfit: meta?.takeProfit ?? null,
-        trailing: Boolean(meta?.trailAtrMult),
-      });
-    }
-    // cash is free cash; short collateral is still the account's money, plus/minus the shorts' P&L.
-    const longValue = positions.filter((p) => p.side === 'long').reduce((sum, p) => sum + p.value, 0);
-    const shortPnl = positions.filter((p) => p.side === 'short').reduce((sum, p) => sum + p.pnl, 0);
-    const equity = cash + longValue + collateral + shortPnl;
-    return { cash, collateral, equity, positions, quote: this.config.quote, shorting: this.allowShort };
+    const equity = cash + positions.reduce((sum, p) => sum + p.value, 0);
+    return { cash, equity, positions, quote: this.config.quote };
   }
 
   // ------------------------------------------------------------------ charts
@@ -528,14 +406,9 @@ class TradingEngine extends EventEmitter {
       .filter((t) => t.symbol === symbol)
       .map((t) => ({ time: Math.floor(t.time / tf) * tf, side: t.side, price: t.price, amount: t.amount, source: t.source }));
     const meta = this.positions[symbol];
-    const shortMeta = this.shorts[symbol];
-    const shortEntry = this.balances?.shorts?.[symbol.split('/')[0]]?.entry;
-    let position = null;
-    if (meta && this.holding(symbol).held) {
-      position = { side: 'long', entryPrice: meta.entryPrice, stopLoss: meta.stopLoss, takeProfit: meta.takeProfit, trailing: Boolean(meta.trailAtrMult) };
-    } else if (shortMeta && this.shortHolding(symbol).held) {
-      position = { side: 'short', entryPrice: shortEntry, stopLoss: shortMeta.stopLoss, takeProfit: shortMeta.takeProfit, trailing: Boolean(shortMeta.trailAtrMult) };
-    }
+    const position = meta && this.holding(symbol).held
+      ? { side: 'long', entryPrice: meta.entryPrice, stopLoss: meta.stopLoss, takeProfit: meta.takeProfit, trailing: Boolean(meta.trailAtrMult) }
+      : null;
 
     return { symbol, timeframe: this.config.timeframe, tfMs: tf, mode: st.mode, candles, lines, signals, trades, position };
   }
@@ -549,33 +422,9 @@ class TradingEngine extends EventEmitter {
     const price = this.prices[symbol];
     if (!s || !price || !s.indicators) return { action: 'WAIT', note: 'Waiting for enough price data' };
     const { buyThreshold, sellThreshold } = this.config.strategy;
-    const position = portfolio.positions.find((p) => p.symbol === symbol && p.side === 'long');
+    const position = portfolio.positions.find((p) => p.symbol === symbol);
     const held = position && position.value >= this.config.risk.minOrderSize;
-    const shortPos = portfolio.positions.find((p) => p.symbol === symbol && p.side === 'short');
     const round = (n) => Math.round(n * 100) / 100;
-
-    if (shortPos && shortPos.value >= this.config.risk.minOrderSize) {
-      if (s.signal === 'BUY') {
-        return {
-          action: 'COVER',
-          baseAmount: shortPos.amount,
-          quoteAmount: shortPos.value,
-          price,
-          pnl: shortPos.pnl,
-          pnlPct: shortPos.pnlPct,
-          thenBuy: !held,
-        };
-      }
-      return {
-        action: 'KEEP_SHORT',
-        note: 'No buy signal. Keep the short.',
-        stopLoss: shortPos.stopLoss,
-        takeProfit: shortPos.takeProfit,
-        trailing: shortPos.trailing,
-        mode: s.mode,
-        maPeriod: s.indicators?.maPeriod ?? null,
-      };
-    }
 
     if (s.signal === 'BUY' && !held) {
       if (this.guardState.halted) return { action: 'WAIT', note: 'BUY signal, but the daily loss limit is reached. New buys resume tomorrow (UTC).' };
@@ -615,45 +464,12 @@ class TradingEngine extends EventEmitter {
     if (s.signal === 'SELL' && held) {
       return {
         action: 'SELL',
-        thenShort: this.allowShort && Boolean(s.canShort),
         percent: 100,
         baseAmount: position.amount,
         quoteAmount: position.value,
         price,
         pnl: position.pnl,
         pnlPct: position.pnlPct,
-      };
-    }
-    if (s.signal === 'SELL' && this.allowShort) {
-      if (!s.canShort) return { action: 'AVOID', note: "Bearish, but trend mode only shorts in a downtrend (price and EMA50 below EMA200). Don't buy." };
-      if (this.guardState.halted) return { action: 'WAIT', note: 'SELL signal, but the daily loss limit is reached. New positions resume tomorrow (UTC).' };
-      if (s.shortStop && price >= s.shortStop) return { action: 'WAIT', note: 'SELL signal, but the price has already risen above the short stop. Wait for the next candle.' };
-      if (s.shortTarget && price <= s.shortTarget) return { action: 'WAIT', note: 'SELL signal, but the price already fell to the short target. Too late to enter.' };
-      const sized = sizeBuy({ equity: portfolio.equity, cash: portfolio.cash, price, stopLoss: s.shortStop, side: 'short' }, this.config.risk);
-      if (!sized.amount) return { action: 'WAIT', note: `SELL signal, but ${sized.reason.toLowerCase()}.` };
-      const amount = sized.amount;
-      const stopPct = s.shortStop ? ((s.shortStop - price) / price) * 100 : null;
-      const targetPct = s.shortTarget ? ((price - s.shortTarget) / price) * 100 : null;
-      return {
-        action: 'SHORT',
-        quoteAmount: amount,
-        baseAmount: amount / price,
-        price,
-        stopLoss: s.shortStop,
-        takeProfit: s.shortTarget,
-        trailAtrMult: s.trailAtrMult,
-        trailDistance: s.trailAtrMult ? s.trailAtrMult * s.indicators.atr : null,
-        stopPct,
-        targetPct,
-        riskAmount: stopPct === null ? null : (amount * stopPct) / 100,
-        rewardAmount: targetPct === null ? null : (amount * targetPct) / 100,
-        rewardRisk: targetPct === null || stopPct === null ? null : targetPct / stopPct,
-        equityPct: (amount / portfolio.equity) * 100,
-        borrowApr: this.config.shortCostApr,
-        mode: s.mode,
-        ma: s.indicators.ma ?? null,
-        maPeriod: s.indicators.maPeriod ?? null,
-        buyThreshold,
       };
     }
     if (s.signal === 'SELL') return { action: 'AVOID', note: `Bearish. Don't buy ${symbol.split('/')[0]} now; you hold none to sell.` };
@@ -730,7 +546,6 @@ class TradingEngine extends EventEmitter {
   }
 
   start() {
-    if (this.shortBlockedReason) this.addAlert('info', this.shortBlockedReason);
     this.scan();
     this.timer = setInterval(() => this.scan(), this.config.scanIntervalSec * 1000);
     if (this.marketData.streamPrices) {

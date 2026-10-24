@@ -118,11 +118,6 @@ section { margin-bottom: 20px; }
 .suggest.SELL { border-color: var(--sell); background: #f8514914; }
 .suggest.SELL .suggest-head { color: var(--sell); }
 .suggest.AVOID { border-left-color: var(--sell); }
-.suggest.SHORT { border-color: var(--sell); background: #f8514914; }
-.suggest.SHORT .suggest-head { color: var(--sell); }
-.suggest.COVER { border-color: var(--buy); background: #2ea04314; }
-.suggest.COVER .suggest-head { color: var(--buy); }
-.suggest.KEEP_SHORT { border-left-color: var(--sell); }
 .options { margin: -2px 0 10px; font-size: 12px; }
 .options-body { margin-top: 6px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 6px; }
 .opt-row { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; }
@@ -130,8 +125,7 @@ section { margin-bottom: 20px; }
 .opt-row b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .options-body p { margin: 6px 0 0; color: var(--muted); }
 .options-body .opt-note { font-style: italic; }
-.tag { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
-.tag.short { background: #f8514933; color: var(--sell); }
+
 .suggest.KEEP { border-left-color: var(--accent); }
 
 .chart { width: 100%; margin: 8px 0; display: block; }

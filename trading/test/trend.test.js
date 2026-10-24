@@ -117,7 +117,7 @@ test('optimizer ranks on training data and reports unseen test results', async (
     });
   }
   const result = optimize(datasets, { top: 3 });
-  assert.strictEqual(combinations(GRID.trend).length, 288); // x2: long-only and with shorting
+  assert.strictEqual(combinations(GRID.trend).length, 144);
   assert.strictEqual(result.best.length, 3);
   for (let k = 1; k < result.best.length; k++) {
     assert.ok(result.best[k - 1].train.returnPct >= result.best[k].train.returnPct, 'sorted by training return');
