@@ -5,7 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { analyze } = require('./strategy');
+const { analyze, computeSeries, evaluateAt, MIN_CANDLES } = require('./strategy');
+const ind = require('./indicators');
 const { sizeBuy, DailyLossGuard } = require('./risk');
 const { timeframeMs } = require('./marketData');
 
@@ -356,6 +357,59 @@ class TradingEngine extends EventEmitter {
     }
     const equity = cash + positions.reduce((sum, p) => sum + p.value, 0);
     return { cash, equity, positions, quote: this.config.quote };
+  }
+
+  // ------------------------------------------------------------------ charts
+
+  // Everything the big chart needs: candles, indicator lines, where signals
+  // changed (the same moments that produce alerts), trades and open levels.
+  chartData(symbol) {
+    const candles = this.candles[symbol];
+    if (!candles) return null;
+    const tf = timeframeMs(this.config.timeframe);
+    const st = this.config.strategy;
+    const forming = candles[candles.length - 1][0] + tf > Date.now();
+    const closed = forming ? candles.slice(0, -1) : candles;
+    const s = computeSeries(closed);
+
+    // Mark a BUY or SELL only when it differs from the previous BUY/SELL, so a
+    // BUY -> HOLD -> BUY wobble (still the same position) shows one arrow.
+    const signals = [];
+    let last = null;
+    for (let i = MIN_CANDLES - 1; i < closed.length; i++) {
+      const r = evaluateAt(s, i, st);
+      if (r.signal === 'HOLD' || r.signal === last) continue;
+      if (last !== null) signals.push({ time: closed[i][0], signal: r.signal, price: closed[i][4], score: r.score });
+      last = r.signal;
+    }
+
+    const closes = candles.map((c) => c[4]);
+    const line = (name, color, values, style = 'solid') => ({
+      name,
+      color,
+      style,
+      points: values.map((v, i) => (v === null ? null : { time: candles[i][0], value: v })).filter(Boolean),
+    });
+    const lines = [];
+    if (st.mode === 'ma') {
+      const ma = ind.sma(closes, st.maPeriod);
+      lines.push(line(`${st.maPeriod}-candle average`, '#d29922', ma));
+      if (st.buyThreshold) lines.push(line(`Buy level (+${st.buyThreshold}%)`, '#3fb68b', ma.map((v) => (v === null ? null : v * (1 + st.buyThreshold / 100))), 'dashed'));
+      if (st.sellThreshold) lines.push(line(`Sell level (${st.sellThreshold}%)`, '#e5636b', ma.map((v) => (v === null ? null : v * (1 + st.sellThreshold / 100))), 'dashed'));
+    } else {
+      lines.push(line('EMA 50', '#58a6ff', ind.ema(closes, 50)));
+      lines.push(line('EMA 200', '#d29922', ind.ema(closes, 200)));
+    }
+
+    const trades = this.trades
+      .filter((t) => t.symbol === symbol)
+      .map((t) => ({ time: Math.floor(t.time / tf) * tf, side: t.side, price: t.price, amount: t.amount, source: t.source }));
+    const meta = this.positions[symbol];
+    const position = meta && this.holding(symbol).held
+      ? { side: 'long', entryPrice: meta.entryPrice, stopLoss: meta.stopLoss, takeProfit: meta.takeProfit, trailing: Boolean(meta.trailAtrMult) }
+      : null;
+
+    return { symbol, timeframe: this.config.timeframe, tfMs: tf, mode: st.mode, candles, lines, signals, trades, position };
   }
 
   // ------------------------------------------------------------ suggestions

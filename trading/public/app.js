@@ -75,6 +75,8 @@ function getCard(symbol) {
   const node = $('#cardTpl').content.firstElementChild.cloneNode(true);
   $('.sym', node).textContent = symbol;
   $('.buy', node).addEventListener('click', () => order(symbol, 'buy', node));
+  $('.chart', node).addEventListener('click', () => selectChart(symbol, true));
+  $('.chart', node).title = 'Show on the big chart';
   $('.sell', node).addEventListener('click', () => order(symbol, 'sell', node));
   $('#signals').appendChild(node);
   state.cards[symbol] = node;
@@ -461,6 +463,174 @@ $('#resetBtn').addEventListener('click', async () => {
   loadTrades();
 });
 
+// -------------------------------------------------------------- big chart
+// TradingView's open-source Lightweight Charts, served from node_modules.
+
+const COLORS = { up: '#3fb68b', down: '#e5636b', trade: '#58a6ff', muted: '#8b949e', grid: 'rgba(48, 54, 61, 0.35)', border: '#30363d' };
+const big = { api: null, candles: null, lines: [], priceLines: [], symbol: null, data: null };
+const toSec = (ms) => Math.floor(ms / 1000);
+
+// Some systems report locales like "en-US@posix" that Intl rejects, which
+// breaks the chart's date labels.
+function safeLocale() {
+  try {
+    new Intl.DateTimeFormat(navigator.language);
+    return navigator.language;
+  } catch {
+    return 'en-US';
+  }
+}
+
+function initBigChart() {
+  if (!window.LightweightCharts || big.api) return;
+  big.api = LightweightCharts.createChart($('#bigChart'), {
+    autoSize: true,
+    localization: { locale: safeLocale() },
+    layout: { background: { type: 'solid', color: 'transparent' }, textColor: COLORS.muted, fontSize: 11 },
+    grid: { vertLines: { color: COLORS.grid }, horzLines: { color: COLORS.grid } },
+    rightPriceScale: { borderColor: COLORS.border },
+    timeScale: { borderColor: COLORS.border, timeVisible: true, secondsVisible: false },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  });
+  big.candles = big.api.addCandlestickSeries({
+    upColor: COLORS.up, downColor: COLORS.down, wickUpColor: COLORS.up, wickDownColor: COLORS.down, borderVisible: false,
+  });
+}
+
+function savedSymbol() {
+  try {
+    return localStorage.getItem('chartSymbol');
+  } catch {
+    return null;
+  }
+}
+
+function renderTabs(signals) {
+  const tabs = $('#chartTabs');
+  if (!big.symbol) {
+    const saved = savedSymbol();
+    big.symbol = signals.some((s) => s.symbol === saved) ? saved : signals[0]?.symbol;
+  }
+  tabs.replaceChildren(
+    ...signals.map((s) => {
+      const btn = el('button', { class: `tab${s.symbol === big.symbol ? ' active' : ''}`, role: 'tab', title: `${s.signal}` });
+      btn.append(el('span', { class: `dot ${s.signal}` }), document.createTextNode(s.symbol.split('/')[0]));
+      btn.addEventListener('click', () => selectChart(s.symbol));
+      return btn;
+    })
+  );
+}
+
+function selectChart(symbol, scroll = false) {
+  big.symbol = symbol;
+  try {
+    localStorage.setItem('chartSymbol', symbol);
+  } catch {
+    // Remembering the tab is only a convenience.
+  }
+  document.querySelectorAll('#chartTabs .tab').forEach((t) => t.classList.toggle('active', t.textContent === symbol.split('/')[0]));
+  loadBigChart(true);
+  if (scroll) $('.chart-panel').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function loadBigChart(fit = false) {
+  initBigChart();
+  if (!big.api || !big.symbol) return;
+  let data;
+  try {
+    data = await api(`/chart?symbol=${encodeURIComponent(big.symbol)}`);
+  } catch {
+    return; // appears after the first analysis
+  }
+  if (data.symbol !== big.symbol) return; // the user switched tabs meanwhile
+  big.data = data;
+  const range = fit ? null : big.api.timeScale().getVisibleLogicalRange();
+
+  big.candles.setData(data.candles.map(([t, o, h, l, c]) => ({ time: toSec(t), open: o, high: h, low: l, close: c })));
+  big.lines.forEach((s) => big.api.removeSeries(s));
+  big.lines = data.lines.map((line) => {
+    const series = big.api.addLineSeries({
+      color: line.color,
+      lineWidth: line.style === 'dashed' ? 1 : 2,
+      lineStyle: line.style === 'dashed' ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    series.setData(line.points.map((p) => ({ time: toSec(p.time), value: p.value })));
+    return series;
+  });
+
+  const markers = [
+    ...data.signals.map((s) => ({
+      time: toSec(s.time),
+      position: s.signal === 'BUY' ? 'belowBar' : 'aboveBar',
+      shape: s.signal === 'BUY' ? 'arrowUp' : 'arrowDown',
+      color: s.signal === 'BUY' ? COLORS.up : COLORS.down,
+      text: s.signal,
+    })),
+    ...data.trades.map((t) => ({
+      time: toSec(t.time),
+      position: t.side === 'buy' ? 'belowBar' : 'aboveBar',
+      shape: 'circle',
+      color: COLORS.trade,
+      text: t.side === 'buy' ? 'bought' : 'sold',
+    })),
+  ].sort((a, b) => a.time - b.time);
+  big.candles.setMarkers(markers);
+
+  big.priceLines.forEach((l) => big.candles.removePriceLine(l));
+  big.priceLines = [];
+  const p = data.position;
+  const level = (price, color, title) =>
+    price && big.priceLines.push(big.candles.createPriceLine({ price, color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title }));
+  if (p) {
+    level(p.entryPrice, COLORS.trade, 'entry');
+    level(p.stopLoss, COLORS.down, p.trailing ? 'trailing stop' : 'stop');
+    level(p.takeProfit, COLORS.up, 'target');
+  }
+
+  if (range) big.api.timeScale().setVisibleLogicalRange(range);
+  else big.api.timeScale().fitContent();
+  renderLegend(data);
+}
+
+function renderLegend(data) {
+  const items = [
+    ['▲', COLORS.up, 'BUY signal'],
+    ['▼', COLORS.down, 'SELL signal'],
+    ['●', COLORS.trade, 'your trade'],
+  ].map(([sym, color, text]) => {
+    const span = el('span');
+    const b = el('b', {}, sym);
+    b.style.color = color;
+    span.append(b, document.createTextNode(text));
+    return span;
+  });
+  for (const line of data.lines) {
+    const span = el('span');
+    const swatch = el('i', line.style === 'dashed' ? { class: 'dashed' } : {});
+    swatch.style.borderTopColor = line.color;
+    span.append(swatch, document.createTextNode(line.name));
+    items.push(span);
+  }
+  items.push(el('span', {}, `${data.timeframe} candles · signals use closed candles`));
+  $('#chartLegend').replaceChildren(...items);
+}
+
+// Moves the last candle with the live price, so the chart ticks in real time.
+function tickBigChart(signals) {
+  const d = big.data;
+  if (!d || !big.candles) return;
+  const s = signals.find((x) => x.symbol === big.symbol);
+  const last = d.candles[d.candles.length - 1];
+  if (!s?.livePrice || !last || Date.now() >= last[0] + d.tfMs) return; // a new candle arrives with the next analysis
+  last[4] = s.livePrice;
+  last[2] = Math.max(last[2], s.livePrice);
+  last[3] = Math.min(last[3], s.livePrice);
+  big.candles.update({ time: toSec(last[0]), open: last[1], high: last[2], low: last[3], close: last[4] });
+}
+
 // ------------------------------------------------------------- live data
 
 function applySnapshot(snap) {
@@ -472,6 +642,9 @@ function applySnapshot(snap) {
 
   const scanChanged = snap.status.lastScanAt !== state.lastScanAt;
   state.lastScanAt = snap.status.lastScanAt;
+  renderTabs(snap.signals);
+  if (scanChanged || !big.data) loadBigChart(!big.data);
+  else tickBigChart(snap.signals);
   for (const s of snap.signals) {
     const candles = state.candles[s.symbol];
     if (scanChanged || !candles) {
@@ -536,7 +709,10 @@ function connect() {
     state.alerts.length = Math.min(state.alerts.length, 100);
     renderAlerts(state.alerts);
   });
-  es.addEventListener('trade', () => loadTrades());
+  es.addEventListener('trade', () => {
+    loadTrades();
+    loadBigChart(); // show the new trade marker and position lines
+  });
   es.addEventListener('error', () => renderFeed(null, false)); // EventSource retries on its own
 }
 

@@ -26,6 +26,15 @@
   <div id="banner" class="banner hidden"></div>
 
   <main>
+    <section class="panel chart-panel">
+      <div class="panel-head">
+        <h2>Chart</h2>
+        <div id="chartTabs" class="tabs" role="tablist"></div>
+      </div>
+      <div id="bigChart" class="big-chart"></div>
+      <div id="chartLegend" class="chart-legend"></div>
+    </section>
+
     <section>
       <h2>Signals</h2>
       <div id="signals" class="cards"></div>
@@ -116,6 +125,7 @@
     </article>
   </template>
 
+  <script src="vendor/lightweight-charts.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

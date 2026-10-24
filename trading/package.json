@@ -19,6 +19,7 @@
   "dependencies": {
     "ccxt": "^4.5.89",
     "dotenv": "^16.6.1",
-    "express": "^4.22.3"
+    "express": "^4.22.3",
+    "lightweight-charts": "4.2.3"
   }
 }

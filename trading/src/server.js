@@ -95,6 +95,17 @@ function createApp(engine) {
   app.get('/api/portfolio', wrap(async (req, res) => res.json(await engine.getPortfolio())));
   app.get('/api/trades', (req, res) => res.json(engine.trades));
   app.get('/api/alerts', (req, res) => res.json(engine.alerts));
+  app.get('/api/chart', (req, res) => {
+    const data = engine.chartData(req.query.symbol);
+    if (!data) return res.status(404).json({ error: 'No chart data for that symbol yet' });
+    res.json(data);
+  });
+  app.get('/vendor/lightweight-charts.js', (req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    // The package's exports map hides this file, so find it next to the main entry.
+    res.sendFile(path.join(path.dirname(require.resolve('lightweight-charts')), 'dist', 'lightweight-charts.standalone.production.js'));
+  });
+
   app.get('/api/candles', (req, res) => {
     const candles = engine.candles[req.query.symbol];
     if (!candles) return res.status(404).json({ error: 'No candles for that symbol yet' });

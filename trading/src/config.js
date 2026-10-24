@@ -29,7 +29,7 @@ const config = {
   quote,
   symbols: bases.map((b) => `${b}/${quote}`),
   timeframe: env.TIMEFRAME || '1h',
-  candleLimit: 300,
+  candleLimit: 500, // enough for a 200-candle average plus ~300 candles of signal history on the chart
 
   // Live trading needs two explicit opt-ins so nobody trades real money by accident.
   mode: requestedMode === 'live' && liveConfirmed ? 'live' : 'paper',
