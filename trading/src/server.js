@@ -163,11 +163,21 @@ async function main() {
     console.warn('WARNING: dashboard is exposed on the network without DASHBOARD_TOKEN. Anyone who can reach it can place orders.');
   }
 
-  createApp(engine).listen(config.port, config.host, () => {
+  const server = createApp(engine).listen(config.port, config.host, () => {
     console.log(`Crypto Signal Trader running at http://${config.host}:${config.port}`);
     console.log(`Mode: ${broker.mode.toUpperCase()} | Exchange: ${config.exchange} | Data: ${engine.marketData.name} | Auto-trade: ${engine.autoTrade}`);
+    // Only trade once we own the port: a second copy must never trade the same account.
+    engine.start();
   });
-  engine.start();
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${config.port} is already in use: the platform is probably already running in another window.`);
+      console.error('Stop that one first (Ctrl+C in its window), or open http://localhost:' + config.port + ' to use it.');
+    } else {
+      console.error(`Server error: ${err.message}`);
+    }
+    process.exit(1);
+  });
 }
 
 if (require.main === module) {
