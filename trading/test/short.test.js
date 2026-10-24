@@ -60,3 +60,88 @@ test('short sizing uses the distance from price up to the stop', () => {
   assert.strictEqual(r.amount, 2000);
   assert.ok(FEE_RATE > 0);
 });
+
+// ------------------------------------------------------------ paper / engine
+
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
+const { PaperBroker } = require('../src/brokers/paperBroker');
+const { TradingEngine } = require('../src/engine');
+const { DemoMarketData } = require('../src/marketData');
+
+const engineRisk = { riskPerTradePct: 1, maxPositionPct: 25, dailyLossLimitPct: 5, minOrderSize: 10 };
+
+function makeEngine(strategy, { supportsShort = true } = {}) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trader-'));
+  const config = {
+    symbols: ['BTC/USDT'], quote: 'USDT', timeframe: '1h', candleLimit: 300, autoTrade: true, enforceStops: true,
+    risk: engineRisk, dataDir, shortCostApr: 10, strategy,
+  };
+  const broker = new PaperBroker({ ...config, paperStartingBalance: 10000 }, { persist: false });
+  broker.supportsShort = supportsShort;
+  return new TradingEngine(config, { marketData: new DemoMarketData(), broker, notifier: { enabled: false } });
+}
+
+test('paper short: collateral is set aside, profit when the price falls', async () => {
+  const b = new PaperBroker({ quote: 'USDT', paperStartingBalance: 1000, shortCostApr: 0 }, { persist: false });
+  const open = await b.openShort('BTC/USDT', 500, 100);
+  let bal = await b.getBalances();
+  assert.ok(Math.abs(bal.cash - (1000 - 0.5 - 500)) < 1e-9, 'fee paid, 500 held as collateral');
+  await assert.rejects(b.buy('BTC/USDT', 600, 100), /Insufficient/);
+  const cover = await b.coverShort('BTC/USDT', open.amount, 90);
+  bal = await b.getBalances();
+  assert.deepStrictEqual(bal.shorts, {});
+  assert.ok(cover.grossPnl > 49 && cover.grossPnl < 50, `~10% of 500, got ${cover.grossPnl}`);
+  assert.ok(bal.cash > 1040 && bal.cash < 1050);
+});
+
+test('auto-trade: SELL opens a short, BUY covers it and then buys', async () => {
+  const engine = makeEngine({ mode: 'ma', maPeriod: 200, buyThreshold: 100, sellThreshold: 100, allowShort: true }); // always SELL
+  await engine.scan();
+  assert.strictEqual(engine.trades[0].side, 'short');
+  let p = await engine.getPortfolio();
+  const short = p.positions.find((x) => x.side === 'short');
+  assert.ok(short && short.value > 2000, 'sized at the 25% cap (ma mode has no stop)');
+  assert.ok(Math.abs(p.equity - 10000) < 10, `equity counts the collateral: ${p.equity}`);
+
+  engine.config.strategy = { ...engine.config.strategy, buyThreshold: -100, sellThreshold: -200 }; // always BUY
+  engine.lastActedCandle = {}; // as if a new candle closed
+  await engine.scan();
+  assert.deepStrictEqual(engine.trades.slice(0, 2).map((t) => t.side), ['buy', 'cover']);
+  p = await engine.getPortfolio();
+  assert.deepStrictEqual(p.positions.map((x) => x.side), ['long']);
+});
+
+test('short stop-loss triggers on a live price spike', async () => {
+  const engine = makeEngine({ mode: 'classic', buyThreshold: 100, sellThreshold: 100, stopAtrMult: 2, targetAtrMult: 3, allowShort: true });
+  await engine.scan();
+  const meta = engine.shorts['BTC/USDT'];
+  assert.ok(meta && meta.stopLoss > engine.prices['BTC/USDT']);
+  engine.onPrices({ 'BTC/USDT': meta.stopLoss * 1.001 });
+  await engine.orderQueue;
+  assert.strictEqual(engine.trades[0].side, 'cover');
+  assert.strictEqual(engine.trades[0].source, 'stop-loss');
+  assert.ok(engine.trades[0].realizedPnl < 0);
+});
+
+test('shorting is refused where the broker cannot short (live Binance.US)', async () => {
+  const engine = makeEngine({ mode: 'ma', maPeriod: 200, buyThreshold: 100, sellThreshold: 100, allowShort: true }, { supportsShort: false });
+  assert.match(engine.shortBlockedReason, /cannot short/);
+  await engine.scan();
+  assert.strictEqual(engine.trades.length, 0);
+  await assert.rejects(engine.placeOrder({ symbol: 'BTC/USDT', side: 'short', quoteAmount: 100 }), /cannot short/);
+});
+
+test('suggestions: SHORT when bearish and enabled, COVER on a BUY', async () => {
+  const engine = makeEngine({ mode: 'ma', maPeriod: 200, buyThreshold: 100, sellThreshold: 100, allowShort: true });
+  engine.autoTrade = false;
+  await engine.scan();
+  let g = engine.suggest('BTC/USDT', await engine.getPortfolio());
+  assert.strictEqual(g.action, 'SHORT');
+  assert.ok(g.quoteAmount > 0 && g.borrowApr === 10);
+  await engine.placeOrder({ symbol: 'BTC/USDT', side: 'short', quoteAmount: g.quoteAmount });
+  engine.signals['BTC/USDT'].signal = 'BUY';
+  g = engine.suggest('BTC/USDT', await engine.getPortfolio());
+  assert.strictEqual(g.action, 'COVER');
+});

@@ -8,6 +8,9 @@ class LiveBroker {
       throw new Error('Live trading needs EXCHANGE_API_KEY and EXCHANGE_API_SECRET in .env');
     }
     this.mode = 'live';
+    // Binance.US and other spot accounts can't borrow to short. Shorting is
+    // paper/backtest only until a margin or futures account is integrated.
+    this.supportsShort = false;
     this.quote = config.quote;
     this.symbols = config.symbols;
     this.exchange = createExchange(config, { withKeys: true });

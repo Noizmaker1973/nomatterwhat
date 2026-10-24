@@ -48,7 +48,7 @@ function renderStatus(s) {
   $('#autoTrade').checked = s.autoTrade;
   $('#resetBtn').classList.toggle('hidden', s.mode !== 'paper');
   $('#meta').textContent =
-    `${s.exchange} · data: ${s.dataSource} · ${s.timeframe} candles · ${s.strategy?.mode || 'classic'} strategy · ` +
+    `${s.exchange} · data: ${s.dataSource} · ${s.timeframe} candles · ${s.strategy?.mode || 'classic'} strategy${s.shorting ? ' + shorting' : ''} · ` +
     `last analysis ${s.lastScanAt ? time(s.lastScanAt) : '—'}`;
 
   const banner = $('#banner');
@@ -94,6 +94,7 @@ function renderSignals(signals) {
 
     renderGauge(card, s);
     renderSuggestion(card, s);
+    renderOptionIdea(card, s);
 
     const i = s.indicators || {};
     const stats = $('.stats', card);
@@ -237,9 +238,37 @@ function renderSuggestion(card, s) {
     if (g.pnl !== null && g.pnl !== undefined) {
       lines.push(`Profit/loss if sold now: ${g.pnl >= 0 ? '+' : ''}${money(g.pnl)} (${fmt(g.pnlPct, 2)}%)`);
     }
+    if (g.thenShort) lines.push('Then open a short (shorting is on). Auto-trade does both.');
     btn.textContent = 'Place this trade';
     btn.className = 'btn small suggest-btn sell';
     btn.onclick = () => order(s.symbol, 'sell', card, { percent: 100 });
+  } else if (g.action === 'SHORT') {
+    head.textContent = `Suggested: SHORT ${money(g.quoteAmount)} ${quote} of ${coin}`;
+    lines.push(`≈ ${fmt(g.baseAmount, 6)} ${coin} · ${fmt(g.equityPct, 1)}% of account · profits if the price falls`);
+    if (g.mode === 'ma') {
+      lines.push(`No stop-loss: cover when the price closes ${g.buyThreshold}% or more above its ${g.maPeriod}-candle average (now ${fmt(g.ma)})`);
+    } else {
+      lines.push(`Stop ${fmt(g.stopLoss)} (+${fmt(g.stopPct, 2)}%) · max loss ${money(g.riskAmount)}`);
+      if (g.trailAtrMult) lines.push(`No fixed target: the stop trails ${fmt(g.trailDistance)} above the lowest price, so it only moves down`);
+      else lines.push(`Target ${fmt(g.takeProfit)} (−${fmt(g.targetPct, 2)}%) · gain ${money(g.rewardAmount)}`);
+    }
+    lines.push(`Borrowing costs about ${g.borrowApr}% a year while the short is open`);
+    btn.textContent = 'Place this trade';
+    btn.className = 'btn small suggest-btn sell';
+    btn.onclick = () => order(s.symbol, 'short', card, { quoteAmount: g.quoteAmount });
+  } else if (g.action === 'COVER') {
+    head.textContent = `Suggested: COVER the ${coin} short (≈ ${money(g.quoteAmount)} ${quote})`;
+    lines.push(`Profit/loss if covered now: ${g.pnl >= 0 ? '+' : ''}${money(g.pnl)} (${fmt(g.pnlPct, 2)}%) before fees`);
+    if (g.thenBuy) lines.push('Then buy (BUY signal). Auto-trade does both.');
+    btn.textContent = 'Place this trade';
+    btn.className = 'btn small suggest-btn buy';
+    btn.onclick = () => order(s.symbol, 'cover', card, { percent: 100 });
+  } else if (g.action === 'KEEP_SHORT') {
+    head.textContent = 'Suggested: keep the short';
+    let exit = `Stop-loss ${fmt(g.stopLoss)} · take-profit ${fmt(g.takeProfit)}`;
+    if (g.mode === 'ma') exit = `Covers when the price closes above its ${g.maPeriod}-candle average buy level`;
+    else if (g.trailing) exit = `Trailing stop ${fmt(g.stopLoss)} (moves down with the price)`;
+    lines.push(g.note, exit);
   } else if (g.action === 'KEEP') {
     head.textContent = 'Suggested: keep holding';
     let exit = `Stop-loss ${fmt(g.stopLoss)} · take-profit ${fmt(g.takeProfit)}`;
@@ -254,6 +283,37 @@ function renderSuggestion(card, s) {
     lines.push(g.note);
   }
   body.replaceChildren(...lines.map((l) => el('div', {}, l)));
+}
+
+// Estimated with Black-Scholes from recent volatility; see src/options.js.
+function renderOptionIdea(card, s) {
+  const box = $('.options', card);
+  const o = s.optionIdea;
+  box.classList.toggle('hidden', !o);
+  if (!o) return;
+  const legs = o.legs.map((l) => `${l.action === 'sell' ? 'Sell' : 'Buy'} ${l.type} ${fmt(l.strike, 0)} (~${money(l.premium)})`).join(' · ');
+  const lines = [
+    [o.title, `${legs}, ${o.expiryDays} days`],
+    ['You collect', `~${money(o.credit)} per coin${o.yieldPct ? ` (${fmt(o.yieldPct, 1)}% in ${o.expiryDays} days)` : ''}`],
+    ['Breakeven', fmt(o.breakeven)],
+    ['Max loss', o.strategy === 'bear-call-spread' ? `${money(o.maxLoss)} per coin (capped)` : `${money(o.maxLoss)} per coin if the price went to zero`],
+    ['Chance of profit', `~${Math.round(o.probProfit * 100)}% (model)`],
+  ];
+  const body = $('.options-body', box);
+  body.replaceChildren(
+    ...lines.map(([k, v]) => {
+      const row = el('div', { class: 'opt-row' });
+      row.append(el('span', {}, k), el('b', {}, v));
+      return row;
+    }),
+    el('p', {}, o.summary),
+    el(
+      'p',
+      { class: 'opt-note' },
+      `Estimate from ${fmt(o.volatilityPct, 0)}% recent volatility. Real option prices differ, and usually pay more. ` +
+        'Binance.US has no options, so this is for planning only; check real quotes before trading.'
+    )
+  );
 }
 
 async function loadCandles(symbol) {
@@ -330,8 +390,10 @@ function renderPortfolio(p) {
   for (const pos of p.positions) {
     const tr = el('tr');
     const pnlCls = pos.pnl >= 0 ? 'pos' : 'neg';
+    const coinCell = el('td', {}, pos.symbol.split('/')[0]);
+    if (pos.side === 'short') coinCell.append(' ', el('span', { class: 'tag short' }, 'SHORT'));
     tr.append(
-      el('td', {}, pos.symbol.split('/')[0]),
+      coinCell,
       el('td', {}, fmt(pos.amount, 6)),
       el('td', {}, money(pos.value)),
       el('td', {}, fmt(pos.entryPrice)),
@@ -340,9 +402,14 @@ function renderPortfolio(p) {
     for (const field of ['stopLoss', 'takeProfit']) {
       const td = el('td');
       let text = fmt(pos[field]);
-      if (field === 'stopLoss' && pos.trailing) text += ' ↑';
+      if (field === 'stopLoss' && pos.trailing) text += pos.side === 'short' ? ' ↓' : ' ↑';
       if (field === 'takeProfit' && pos.trailing && pos[field] === null) text = 'trailing';
       const title = field === 'stopLoss' && pos.trailing ? 'Trailing stop: rises with the price, never falls. Click to change' : 'Click to change';
+      if (pos.side === 'short') {
+        td.appendChild(el('span', {}, text)); // short levels follow the strategy; not editable here
+        tr.appendChild(td);
+        continue;
+      }
       const span = el('span', { class: 'editable', title }, text);
       span.addEventListener('click', () => editStop(pos.symbol, field, pos[field]));
       td.appendChild(span);
@@ -376,7 +443,7 @@ function renderTrades(trades) {
     const pnl = t.realizedPnl;
     tr.append(
       el('td', {}, dateTime(t.time)),
-      el('td', { class: t.side === 'buy' ? 'pos' : 'neg' }, t.side.toUpperCase()),
+      el('td', { class: t.side === 'buy' || t.side === 'cover' ? 'pos' : 'neg' }, t.side.toUpperCase()),
       el('td', {}, t.symbol),
       el('td', {}, fmt(t.amount, 6)),
       el('td', {}, fmt(t.price)),
@@ -398,6 +465,12 @@ async function order(symbol, side, card, overrides = {}) {
     const amount = overrides.quoteAmount ?? parseFloat($('.buyAmt', card).value);
     if (amount > 0) payload.quoteAmount = amount;
     description = `BUY ${symbol} for ${amount > 0 ? `${money(amount)} ${state.status.quote}` : 'an auto-sized amount (risk rules)'}`;
+  } else if (side === 'short') {
+    payload.quoteAmount = overrides.quoteAmount;
+    description = `SHORT ${symbol} for ${money(payload.quoteAmount)} ${state.status.quote} (profits if the price falls)`;
+  } else if (side === 'cover') {
+    payload.percent = overrides.percent ?? 100;
+    description = `COVER (buy back) ${payload.percent}% of your ${symbol.split('/')[0]} short`;
   } else {
     payload.percent = overrides.percent ?? Number($('.sellPct', card).value);
     description = `SELL ${payload.percent}% of your ${symbol.split('/')[0]}`;
@@ -571,10 +644,10 @@ async function loadBigChart(fit = false) {
     })),
     ...data.trades.map((t) => ({
       time: toSec(t.time),
-      position: t.side === 'buy' ? 'belowBar' : 'aboveBar',
+      position: t.side === 'buy' || t.side === 'cover' ? 'belowBar' : 'aboveBar',
       shape: 'circle',
       color: COLORS.trade,
-      text: t.side === 'buy' ? 'bought' : 'sold',
+      text: { buy: 'bought', sell: 'sold', short: 'shorted', cover: 'covered' }[t.side] || t.side,
     })),
   ].sort((a, b) => a.time - b.time);
   big.candles.setMarkers(markers);
@@ -585,7 +658,7 @@ async function loadBigChart(fit = false) {
   const level = (price, color, title) =>
     price && big.priceLines.push(big.candles.createPriceLine({ price, color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title }));
   if (p) {
-    level(p.entryPrice, COLORS.trade, 'entry');
+    level(p.entryPrice, COLORS.trade, p.side === 'short' ? 'short entry' : 'entry');
     level(p.stopLoss, COLORS.down, p.trailing ? 'trailing stop' : 'stop');
     level(p.takeProfit, COLORS.up, 'target');
   }

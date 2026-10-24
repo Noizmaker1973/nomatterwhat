@@ -51,6 +51,8 @@ function createApp(engine) {
     tokenRequired: Boolean(config.dashboardToken),
     notifications: engine.notifier.enabled,
     priceFeed: engine.priceFeed,
+    shorting: engine.allowShort,
+    shortCostApr: config.shortCostApr,
   });
 
   app.get('/api/status', (req, res) => res.json(status()));
