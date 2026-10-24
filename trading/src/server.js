@@ -25,7 +25,9 @@ function requireToken(req, res, next) {
 function createApp(engine) {
   const app = express();
   app.use(express.json());
-  app.use(express.static(path.join(__dirname, '..', 'public')));
+  // no-cache: the browser re-checks the dashboard files on every load, so an
+  // update is picked up by a normal refresh instead of running stale code.
+  app.use(express.static(path.join(__dirname, '..', 'public'), { setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
 
   const wrap = (fn) => (req, res) =>
     Promise.resolve(fn(req, res)).catch((err) => res.status(400).json({ error: err.message }));
