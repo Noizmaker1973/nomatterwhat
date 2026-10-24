@@ -447,6 +447,8 @@ function applySnapshot(snap) {
 }
 
 function renderFeed(feed, connected) {
+  state.feed = feed || state.feed;
+  state.connected = connected;
   const node = $('#feed');
   if (!connected) {
     node.textContent = 'Reconnecting…';
@@ -454,9 +456,13 @@ function renderFeed(feed, connected) {
     return;
   }
   const mode = feed?.mode;
-  node.textContent = mode === 'stream' ? 'LIVE' : mode === 'polling' ? 'LIVE (polling)' : mode === 'error' ? 'Price feed error' : 'Connecting…';
-  node.className = `feed ${mode === 'stream' || mode === 'polling' ? 'up' : mode === 'error' ? 'down' : ''}`;
-  node.title = feed?.message || '';
+  const age = feed?.lastPriceAt ? Math.round((Date.now() - feed.lastPriceAt) / 1000) : null;
+  const stale = age !== null && age > 15;
+  let text = mode === 'stream' ? 'LIVE' : mode === 'polling' ? 'LIVE (polling)' : mode === 'error' ? 'Price feed error' : 'Connecting…';
+  if (stale) text += ` · no price for ${age}s`;
+  node.textContent = text;
+  node.className = `feed ${stale || mode === 'error' ? 'down' : mode === 'stream' || mode === 'polling' ? 'up' : ''}`;
+  node.title = `${feed?.message || ''}${age !== null ? ` · last price ${age}s ago` : ''}`;
 }
 
 async function refresh() {
@@ -496,6 +502,9 @@ function connect() {
 }
 
 connect();
+setInterval(() => {
+  if (state.feed) renderFeed(state.feed, state.connected);
+}, 1000);
 // Safety net: if the stream goes quiet (e.g. a proxy buffers it), poll instead.
 setInterval(() => {
   if (Date.now() - state.lastSnapshotAt > 8000) refresh();

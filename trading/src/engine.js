@@ -415,7 +415,8 @@ class TradingEngine extends EventEmitter {
       if (!s) return { symbol, signal: 'LOADING', livePrice: this.prices[symbol] };
       return { ...s, livePrice: this.prices[symbol] ?? s.livePrice, suggestion: this.suggest(symbol, portfolio) };
     });
-    return { signals, portfolio, priceFeed: this.priceFeed, serverTime: Date.now() };
+    const lastPriceAt = Math.max(0, ...Object.values(this.priceAt));
+    return { signals, portfolio, priceFeed: { ...this.priceFeed, lastPriceAt: lastPriceAt || null }, serverTime: Date.now() };
   }
 
   // ------------------------------------------------------------------- misc

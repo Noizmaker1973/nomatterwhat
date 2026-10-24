@@ -41,6 +41,18 @@ class ExchangeMarketData {
     this.exchange = exchange || createExchange(config);
     this.name = config.exchange;
     this.pollMs = (config.pricePollSec || 2) * 1000;
+    // A stream that sends nothing for this long is treated as broken.
+    this.streamTimeoutMs = 15000;
+    // While streaming, also refresh every price over REST this often, so a
+    // coin whose stream stalls can't go stale.
+    this.backupRefreshMs = 10000;
+    this.reconnectDelayMs = 1000; // grows with each failed attempt
+  }
+
+  // Overridable in tests.
+  createStream() {
+    const ProClass = ccxt.pro?.[this.exchange.id];
+    return ProClass ? new ProClass({ enableRateLimit: true }) : null;
   }
 
   async fetchCandles(symbol, timeframe, limit) {
@@ -84,34 +96,57 @@ class ExchangeMarketData {
     let stopped = false;
     let ws = null;
 
+    const withTimeout = (promise, ms) => {
+      let timer;
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no price updates for ${ms / 1000}s`)), ms);
+      });
+      return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+    };
+
     const runStream = async () => {
-      const ProClass = ccxt.pro?.[this.exchange.id];
-      if (!ProClass) return;
-      ws = new ProClass({ enableRateLimit: true });
-      if (!ws.has.watchTickers && !ws.has.watchTicker) return;
-      const watch = ws.has.watchTickers
-        ? () => ws.watchTickers(symbols)
-        : () => Promise.race(symbols.map((s) => ws.watchTicker(s).then((t) => ({ [s]: t }))));
+      ws = this.createStream();
+      if (!ws || (!ws.has.watchTickers && !ws.has.watchTicker)) return;
+      const watch = () =>
+        ws.has.watchTickers
+          ? ws.watchTickers(symbols)
+          : Promise.race(symbols.map((s) => ws.watchTicker(s).then((t) => ({ [s]: t }))));
+
+      const backup = setInterval(() => {
+        this.fetchPrices(symbols).then(onPrices, () => {});
+      }, this.backupRefreshMs);
+
       let failures = 0;
+      let healthy = 0; // consecutive updates since the last problem
       let announced = false;
-      while (!stopped && failures < 3) {
-        try {
-          const prices = lastPrices(await watch(), symbols);
-          failures = 0;
-          if (!announced) {
-            onStatus('stream', `Streaming live prices from ${this.exchange.id}`);
-            announced = true;
+      try {
+        while (!stopped && failures < 3) {
+          try {
+            const prices = lastPrices(await withTimeout(watch(), this.streamTimeoutMs), symbols);
+            // One update after a reconnect doesn't prove the stream is fixed;
+            // only a steady run of updates clears the failure count.
+            if (++healthy >= 10) failures = 0;
+            if (!announced) {
+              onStatus('stream', `Streaming live prices from ${this.exchange.id}`);
+              announced = true;
+            }
+            onPrices(prices);
+          } catch (err) {
+            if (stopped) return;
+            failures++;
+            healthy = 0;
+            announced = false;
+            onStatus('error', `Price stream problem (${failures}/3): ${err.message}. Reconnecting.`);
+            // Start over with a fresh connection; a stalled one rarely recovers.
+            await ws.close().catch(() => {});
+            await sleep(this.reconnectDelayMs * failures);
+            ws = this.createStream();
           }
-          onPrices(prices);
-        } catch (err) {
-          if (stopped) return;
-          failures++;
-          announced = false;
-          onStatus('error', `Price stream error (${failures}/3): ${err.message}`);
-          await sleep(1000 * failures);
         }
+      } finally {
+        clearInterval(backup);
+        await ws.close().catch(() => {});
       }
-      await ws.close().catch(() => {});
     };
 
     const runPolling = async () => {
