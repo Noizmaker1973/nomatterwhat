@@ -114,6 +114,10 @@ function evaluateAt(s, i, options = {}) {
     stopLoss: close - opts.stopAtrMult * a,
     takeProfit: trend ? null : close + opts.targetAtrMult * a,
     trailAtrMult: trend ? opts.trailAtrMult : null,
+    // Short side (used only when shorting is enabled): mirror-image levels.
+    canShort: scored.canShort,
+    shortStop: close + opts.stopAtrMult * a,
+    shortTarget: trend ? null : close - opts.targetAtrMult * a,
     indicators: {
       rsi: r,
       ema9: s.ema9[i],
@@ -162,6 +166,9 @@ function evaluateMa(s, i, opts, base) {
     stopLoss: null,
     takeProfit: null,
     trailAtrMult: null,
+    canShort: true,
+    shortStop: null,
+    shortTarget: null,
     indicators: {
       ma,
       maPeriod: opts.maPeriod,
@@ -219,7 +226,7 @@ function scoreClassic(s, i, vote) {
   if (close < s.bb.lower[i]) vote(1, 'Price below lower Bollinger Band');
   else if (close > s.bb.upper[i]) vote(-1, 'Price above upper Bollinger Band');
 
-  return { canBuy: true, forceSell: false, adjust: volumeBoost(s, i) };
+  return { canBuy: true, canShort: true, forceSell: false, adjust: volumeBoost(s, i) };
 }
 
 function scoreTrend(s, i, vote) {
@@ -263,6 +270,7 @@ function scoreTrend(s, i, vote) {
 
   return {
     canBuy: uptrend,
+    canShort: downtrend, // mirror of "only buy in an uptrend"
     forceSell: trendBroken && !uptrend,
     note: uptrend ? null : 'Trend mode only buys in an uptrend',
     adjust: volumeBoost(s, i),
@@ -272,7 +280,7 @@ function scoreTrend(s, i, vote) {
 // Scores every candle once for a given mode. The score doesn't depend on
 // thresholds or stop sizes, so the optimizer can try many of those cheaply.
 function scoreSeries(s, mode, extra = {}) {
-  const out = { mode, score: [], canBuy: [], forceSell: [] };
+  const out = { mode, score: [], canBuy: [], canShort: [], forceSell: [] };
   // Thresholds that never trigger, so we can read canBuy/forceSell separately.
   const probe = { mode, ...extra, buyThreshold: -Infinity, sellThreshold: -Infinity };
   for (let i = 0; i < s.closes.length; i++) {
@@ -280,6 +288,7 @@ function scoreSeries(s, mode, extra = {}) {
     out.score[i] = r.score;
     out.canBuy[i] = Boolean(r.indicators) && r.signal === 'BUY';
     out.forceSell[i] = r.signal === 'SELL';
+    out.canShort[i] = Boolean(r.canShort);
   }
   return out;
 }
@@ -293,7 +302,10 @@ function signalFromScore(scores, i, s, options = {}) {
   else if (score <= opts.sellThreshold || scores.forceSell[i]) signal = 'SELL';
   const close = s.closes[i];
   const a = s.atr[i];
-  if (opts.mode === 'ma') return { signal, score, stopLoss: null, takeProfit: null, trailAtrMult: null };
+  const canShort = scores.canShort[i];
+  if (opts.mode === 'ma') {
+    return { signal, score, stopLoss: null, takeProfit: null, trailAtrMult: null, canShort, shortStop: null, shortTarget: null };
+  }
   const trend = opts.mode === 'trend';
   return {
     signal,
@@ -301,6 +313,9 @@ function signalFromScore(scores, i, s, options = {}) {
     stopLoss: close - opts.stopAtrMult * a,
     takeProfit: trend ? null : close + opts.targetAtrMult * a,
     trailAtrMult: trend ? opts.trailAtrMult : null,
+    canShort,
+    shortStop: close + opts.stopAtrMult * a,
+    shortTarget: trend ? null : close - opts.targetAtrMult * a,
   };
 }
 

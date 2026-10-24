@@ -37,7 +37,7 @@ test('ma mode cached scores match full evaluation for every period', async () =>
       assert.strictEqual(signalFromScore(scores, i, s, opts).signal, evaluateAt(s, i, opts).signal, `ma${maPeriod} bar ${i}`);
     }
   }
-  assert.strictEqual(combinations(GRID.ma).length, 64);
+  assert.strictEqual(combinations(GRID.ma).length, 128); // x2: long-only and with shorting
 });
 
 test('no stop (null) sizes by the position cap; a missing signal still assumes a 5% stop', () => {

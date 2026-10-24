@@ -55,7 +55,11 @@ const config = {
     targetAtrMult: num(env.TARGET_ATR_MULT, 3),
     trailAtrMult: num(env.TRAIL_ATR_MULT, 3),
     maPeriod: Math.round(num(env.MA_PERIOD, 200)),
+    // Open short positions on SELL signals (paper trading and backtests only).
+    allowShort: bool(env.ALLOW_SHORT, false),
   },
+  // Yearly cost of borrowing to short (margin interest / futures funding), in %.
+  shortCostApr: num(env.SHORT_COST_APR, 10),
 
   port: num(env.PORT, 4000),
   host: env.HOST || '127.0.0.1',

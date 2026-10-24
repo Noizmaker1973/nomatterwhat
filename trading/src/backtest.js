@@ -17,19 +17,76 @@ const { FEE_RATE, SLIPPAGE } = require('./brokers/paperBroker');
 function backtest(candles, { startingBalance = 10000, risk = config.risk, strategy = config.strategy, series, scores, from = MIN_CANDLES, to = candles.length } = {}) {
   const s = series || computeSeries(candles);
   const start = Math.max(from, MIN_CANDLES);
+  const allowShort = Boolean(strategy.allowShort);
+  // Borrowing cost of a short, charged per candle held.
+  const barMs = candles.length > 1 ? candles[1][0] - candles[0][0] : 86400e3;
+  const shortCostPerBar = ((strategy.shortCostApr ?? config.shortCostApr) / 100) * (barMs / (365 * 86400e3));
   let cash = startingBalance;
-  let pos = null; // { amount, entry, stopLoss, takeProfit, trailAtrMult, highest, cost }
+  // pos: { side, amount, entry, stopLoss, takeProfit, trailAtrMult, extreme, cost, time }
+  // For a long, cash paid for the coins is `cost`. A short keeps its
+  // collateral in cash and its profit/loss is amount x (entry - price).
+  let pos = null;
   const trades = [];
   let peak = startingBalance;
   let maxDrawdown = 0;
   let exposureSum = 0;
 
   const close = (i, price, reason) => {
-    const fill = price * (1 - SLIPPAGE);
-    const proceeds = pos.amount * fill * (1 - FEE_RATE);
-    cash += proceeds;
-    trades.push({ entryTime: pos.time, exitTime: candles[i][0], entry: pos.entry, exit: fill, pnl: proceeds - pos.cost, reason });
+    if (pos.side === 'long') {
+      const fill = price * (1 - SLIPPAGE);
+      const proceeds = pos.amount * fill * (1 - FEE_RATE);
+      cash += proceeds;
+      trades.push({ side: 'long', entryTime: pos.time, exitTime: candles[i][0], entry: pos.entry, exit: fill, pnl: proceeds - pos.cost, reason });
+    } else {
+      const fill = price * (1 + SLIPPAGE);
+      const result = pos.amount * (pos.entry - fill) - pos.amount * fill * FEE_RATE;
+      cash += result;
+      trades.push({ side: 'short', entryTime: pos.time, exitTime: candles[i][0], entry: pos.entry, exit: fill, pnl: result - pos.openFee - pos.carry, reason });
+    }
     pos = null;
+  };
+
+  const openLong = (i, sig, price) => {
+    const { amount } = sizeBuy({ equity: cash, cash, price, stopLoss: sig.stopLoss }, risk);
+    if (!(amount > 0)) return;
+    const fill = price * (1 + SLIPPAGE);
+    pos = {
+      side: 'long',
+      amount: (amount * (1 - FEE_RATE)) / fill,
+      entry: fill,
+      stopLoss: sig.stopLoss,
+      takeProfit: sig.takeProfit,
+      trailAtrMult: sig.trailAtrMult,
+      extreme: price,
+      cost: amount,
+      time: candles[i][0],
+    };
+    cash -= amount;
+  };
+
+  const openShort = (i, sig, price) => {
+    const { amount } = sizeBuy({ equity: cash, cash, price, stopLoss: sig.shortStop, side: 'short' }, risk);
+    if (!(amount > 0)) return;
+    const fill = price * (1 - SLIPPAGE);
+    const openFee = amount * FEE_RATE;
+    cash -= openFee;
+    pos = {
+      side: 'short',
+      amount: amount / fill,
+      entry: fill,
+      stopLoss: sig.shortStop,
+      takeProfit: sig.shortTarget,
+      trailAtrMult: sig.trailAtrMult,
+      extreme: price,
+      openFee,
+      carry: 0,
+      time: candles[i][0],
+    };
+  };
+
+  const equityAt = (price) => {
+    if (!pos) return cash;
+    return pos.side === 'long' ? cash + pos.amount * price : cash + pos.amount * (pos.entry - price);
   };
 
   for (let i = start; i < to; i++) {
@@ -38,48 +95,50 @@ function backtest(candles, { startingBalance = 10000, risk = config.risk, strate
     // Stops are checked intra-bar against levels known before this bar. If
     // both levels fall inside one candle we assume the stop hit first (the
     // pessimistic case). A gap through the stop fills at the open.
-    if (pos) {
-      if (low <= pos.stopLoss) close(i, Math.min(pos.stopLoss, open), pos.trailAtrMult ? 'trailing stop' : 'stop-loss');
+    if (pos && pos.side === 'long') {
+      if (pos.stopLoss && low <= pos.stopLoss) close(i, Math.min(pos.stopLoss, open), pos.trailAtrMult ? 'trailing stop' : 'stop-loss');
       else if (pos.takeProfit && high >= pos.takeProfit) close(i, Math.max(pos.takeProfit, open), 'take-profit');
+    } else if (pos && pos.side === 'short') {
+      if (pos.stopLoss && high >= pos.stopLoss) close(i, Math.max(pos.stopLoss, open), pos.trailAtrMult ? 'trailing stop' : 'stop-loss');
+      else if (pos.takeProfit && low <= pos.takeProfit) close(i, Math.min(pos.takeProfit, open), 'take-profit');
     }
-    // Trailing stop: ratchet up behind the highest price, never down.
+    // Trailing stops ratchet towards profit, never back.
     if (pos && pos.trailAtrMult) {
-      pos.highest = Math.max(pos.highest, high);
-      pos.stopLoss = Math.max(pos.stopLoss, pos.highest - pos.trailAtrMult * s.atr[i]);
+      if (pos.side === 'long') {
+        pos.extreme = Math.max(pos.extreme, high);
+        pos.stopLoss = Math.max(pos.stopLoss, pos.extreme - pos.trailAtrMult * s.atr[i]);
+      } else {
+        pos.extreme = Math.min(pos.extreme, low);
+        pos.stopLoss = Math.min(pos.stopLoss, pos.extreme + pos.trailAtrMult * s.atr[i]);
+      }
+    }
+    if (pos && pos.side === 'short') {
+      const carry = pos.amount * closePrice * shortCostPerBar;
+      cash -= carry;
+      pos.carry += carry;
     }
 
     const sig = scores ? signalFromScore(scores, i, s, strategy) : evaluateAt(s, i, strategy);
-    if (!pos && sig.signal === 'BUY') {
-      const { amount } = sizeBuy({ equity: cash, cash, price: closePrice, stopLoss: sig.stopLoss }, risk);
-      if (amount > 0) {
-        const fill = closePrice * (1 + SLIPPAGE);
-        pos = {
-          amount: (amount * (1 - FEE_RATE)) / fill,
-          entry: fill,
-          stopLoss: sig.stopLoss,
-          takeProfit: sig.takeProfit,
-          trailAtrMult: sig.trailAtrMult,
-          highest: closePrice,
-          cost: amount,
-          time: candles[i][0],
-        };
-        cash -= amount;
-      }
-    } else if (pos && sig.signal === 'SELL') {
-      close(i, closePrice, 'sell signal');
+    if (sig.signal === 'BUY') {
+      if (pos && pos.side === 'short') close(i, closePrice, 'buy signal');
+      if (!pos) openLong(i, sig, closePrice);
+    } else if (sig.signal === 'SELL') {
+      if (pos && pos.side === 'long') close(i, closePrice, 'sell signal');
+      if (!pos && allowShort && sig.canShort) openShort(i, sig, closePrice);
     }
 
-    const equity = cash + (pos ? pos.amount * closePrice : 0);
-    if (pos) exposureSum += (pos.amount * closePrice) / equity;
+    const equity = equityAt(closePrice);
+    if (pos) exposureSum += (pos.amount * closePrice) / Math.max(equity, 1e-9);
     peak = Math.max(peak, equity);
     maxDrawdown = Math.max(maxDrawdown, (peak - equity) / peak);
   }
 
   const last = candles[to - 1][4];
-  const finalEquity = cash + (pos ? pos.amount * last : 0);
+  const finalEquity = equityAt(last);
   const wins = trades.filter((t) => t.pnl > 0);
   const grossWin = wins.reduce((a, t) => a + t.pnl, 0);
   const grossLoss = -trades.filter((t) => t.pnl <= 0).reduce((a, t) => a + t.pnl, 0);
+  const shorts = trades.filter((t) => t.side === 'short');
 
   return {
     grossWin,
@@ -90,6 +149,8 @@ function backtest(candles, { startingBalance = 10000, risk = config.risk, strate
     buyHoldPct: ((last - candles[start][4]) / candles[start][4]) * 100,
     exposurePct: (exposureSum / Math.max(to - start, 1)) * 100,
     trades: trades.length,
+    shortTrades: shorts.length,
+    shortPnl: shorts.reduce((a, t) => a + t.pnl, 0),
     winRatePct: trades.length ? (wins.length / trades.length) * 100 : 0,
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0,
     maxDrawdownPct: maxDrawdown * 100,
@@ -123,6 +184,7 @@ async function main() {
   console.log(
     `Backtest | ${marketData.name} | ${args.timeframe} | ${args.bars} bars | ${config.strategy.mode} mode | ` +
       `each coin trades 1/${config.symbols.length} of the account | ` +
+      (config.strategy.allowShort ? `shorting ON (borrow cost ${config.shortCostApr}%/yr) | ` : 'long only | ') +
       `fees ${FEE_RATE * 100}% + slippage ${SLIPPAGE * 100}%\n`
   );
 
@@ -141,6 +203,7 @@ async function main() {
         'return %': r.returnPct.toFixed(2),
         'buy&hold %': r.buyHoldPct.toFixed(2),
         trades: r.trades,
+        ...(config.strategy.allowShort ? { shorts: r.shortTrades, 'short P&L': r.shortPnl.toFixed(0) } : {}),
         'win %': r.winRatePct.toFixed(1),
         'profit factor': Number.isFinite(r.profitFactor) ? r.profitFactor.toFixed(2) : '∞',
         'max DD %': r.maxDrawdownPct.toFixed(2),

@@ -6,9 +6,11 @@
 // stopLoss === null means the strategy has no stop (moving-average mode):
 // the position is sized by the caps alone. undefined (no signal at all)
 // falls back to assuming a 5% stop.
-function sizeBuy({ equity, cash, price, stopLoss, currentPositionValue = 0 }, risk) {
+// side 'short' sizes a short position, whose stop sits above the price.
+function sizeBuy({ equity, cash, price, stopLoss, currentPositionValue = 0, side = 'long' }, risk) {
   const riskAmount = equity * (risk.riskPerTradePct / 100);
-  const stopDistancePct = stopLoss && stopLoss < price ? (price - stopLoss) / price : 0.05;
+  const distance = side === 'short' ? stopLoss - price : price - stopLoss;
+  const stopDistancePct = stopLoss && distance > 0 ? distance / price : 0.05;
   const byRisk = stopLoss === null ? Infinity : riskAmount / stopDistancePct;
   const byMaxPosition = equity * (risk.maxPositionPct / 100) - currentPositionValue;
   const byCash = cash * 0.995; // leave room for fees

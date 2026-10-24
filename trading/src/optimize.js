@@ -16,13 +16,15 @@ const { backtest, checkTimeframe } = require('./backtest');
 const { shareOfAccount } = require('./risk');
 
 const GRID = {
-  classic: { buyThreshold: [2, 3, 4, 5], sellThreshold: [-2, -3, -4], stopAtrMult: [1.5, 2, 3], targetAtrMult: [2, 3, 4, 6] },
-  trend: { buyThreshold: [2, 3, 4, 5], sellThreshold: [-2, -3, -4], stopAtrMult: [1.5, 2, 3], trailAtrMult: [2, 3, 4, 5] },
+  // allowShort: false = long only, true = also short on SELL signals.
+  classic: { buyThreshold: [2, 3, 4, 5], sellThreshold: [-2, -3, -4], stopAtrMult: [1.5, 2, 3], targetAtrMult: [2, 3, 4, 6], allowShort: [false, true] },
+  trend: { buyThreshold: [2, 3, 4, 5], sellThreshold: [-2, -3, -4], stopAtrMult: [1.5, 2, 3], trailAtrMult: [2, 3, 4, 5], allowShort: [false, true] },
   // Thresholds here are % above/below the average (a buffer against whipsaws).
-  ma: { maPeriod: [50, 100, 150, 200], buyThreshold: [0, 1, 2, 3], sellThreshold: [0, -1, -2, -3] },
+  ma: { maPeriod: [50, 100, 150, 200], buyThreshold: [0, 1, 2, 3], sellThreshold: [0, -1, -2, -3], allowShort: [false, true] },
 };
 const MA_PERIODS = GRID.ma.maPeriod;
 const scoresKey = (st) => (st.mode === 'ma' ? `ma${st.maPeriod}` : st.mode);
+const variantKey = (st) => `${st.mode}${st.allowShort ? '+S' : ''}`;
 const MIN_TRADES_PER_COIN = 3; // fewer trades than this is luck, not a result
 
 function combinations(grid) {
@@ -69,10 +71,12 @@ function evaluate(datasets, strategy, window, risk) {
 
 // Short form, e.g. "trend 4/-2 s2 tr3" = buy at 4, sell at -2, stop 2 ATR, trail 3 ATR.
 // "ma200   +2%/-1%" = hold above the 200-candle average: buy 2% above it, sell 1% below.
+// A trailing " +S" means the setting also shorts on SELL signals.
 const describe = (st) => {
-  if (st.mode === 'ma') return `ma${st.maPeriod}`.padEnd(8) + `+${st.buyThreshold}%/${st.sellThreshold}%`;
-  if (st.mode === 'trend') return `trend   ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tr${st.trailAtrMult}`;
-  return `classic ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tg${st.targetAtrMult}`;
+  const short = st.allowShort ? ' +S' : '';
+  if (st.mode === 'ma') return `ma${st.maPeriod}`.padEnd(8) + `+${st.buyThreshold}%/${st.sellThreshold}%${short}`;
+  if (st.mode === 'trend') return `trend   ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tr${st.trailAtrMult}${short}`;
+  return `classic ${st.buyThreshold}/${st.sellThreshold} s${st.stopAtrMult} tg${st.targetAtrMult}${short}`;
 };
 
 const pf = (v) => (Number.isFinite(v) ? v.toFixed(2) : 'inf');
@@ -134,9 +138,13 @@ function optimize(datasets, { top = 5, risk = shareOfAccount(config.risk, datase
     train: evaluate(datasets, strategy, trainWindow, risk),
     test: evaluate(datasets, strategy, testWindow, risk),
   });
-  // Best of each mode too, so modes can be compared even when one dominates the top list.
+  // Best of each mode, long-only and with shorting, so they can be compared
+  // even when one dominates the top list.
   const bestByMode = {};
-  for (const r of ranked) if (!bestByMode[r.strategy.mode]) bestByMode[r.strategy.mode] = { ...r, test: both(r.strategy).test };
+  for (const r of ranked) {
+    const key = variantKey(r.strategy);
+    if (!bestByMode[key]) bestByMode[key] = { ...r, test: both(r.strategy).test };
+  }
   return { best, bestByMode, tried: ranked.length, evaluate: both };
 }
 
@@ -211,8 +219,8 @@ async function main() {
       rows.push(row(`#${k + 1}  ${describe(r.strategy)}`, tf, r.train, r.test));
       if (k === result.best.length - 1) {
         // Show each mode's best if it didn't make the top list.
-        for (const [mode, b] of Object.entries(result.bestByMode)) {
-          if (!result.best.some((x) => x.strategy.mode === mode)) rows.push(row(`best ${describe(b.strategy)}`, tf, b.train, b.test));
+        for (const [key, b] of Object.entries(result.bestByMode)) {
+          if (!result.best.some((x) => variantKey(x.strategy) === key)) rows.push(row(`best ${describe(b.strategy)}`, tf, b.train, b.test));
         }
       }
       // Pick between timeframes by training profit factor: it is comparable
@@ -225,10 +233,12 @@ async function main() {
   console.log('');
   printTable(rows);
   console.log('');
-  console.log('setting: "now" = your current settings, #1-#5 = best found, "best" = best of a mode');
-  console.log('  that missed the top 5. "trend 4/-2 s2 tr3" = trend mode, buy at score 4, sell at -2,');
-  console.log('  stop 2 ATR, trail 3 ATR (tg = fixed target, classic). "ma200 +2%/-1%" = hold above the');
-  console.log('  200-candle average: buy 2% above it, sell 1% below it (on 1d candles: the 200-day average).');
+  console.log('setting: "now" = your current settings, #1-#5 = best found, "best" = best of each');
+  console.log('  mode (long-only and with shorting) that missed the top 5.');
+  console.log('  "trend 4/-2 s2 tr3" = trend mode, buy at score 4, sell at -2, stop 2 ATR, trail 3 ATR');
+  console.log('  (tg = fixed target, classic). "ma200 +2%/-1%" = hold above the 200-candle average:');
+  console.log('  buy 2% above it, sell 1% below it (on 1d candles: the 200-day average).');
+  console.log(`  " +S" = also SHORTS on SELL signals (borrow cost ${config.shortCostApr}%/yr included).`);
   console.log('ret% = whole-account return, coins split equally. PF = profit factor (above 1 = profitable).');
   console.log('expo% = average share of the account invested. b&h% = buy and hold over the same period.');
   console.log('Settings were chosen on TRAIN only. TEST is data they never saw: the honest score.\n');
@@ -253,6 +263,7 @@ async function main() {
   else console.log(`  STOP_ATR_MULT=${st.stopAtrMult}`);
   if (st.mode === 'trend') console.log(`  TRAIL_ATR_MULT=${st.trailAtrMult}`);
   if (st.mode === 'classic') console.log(`  TARGET_ATR_MULT=${st.targetAtrMult}`);
+  console.log(`  ALLOW_SHORT=${st.allowShort ? 'true' : 'false'}`);
   console.log('\nPast performance does not guarantee future results.');
 }
 
