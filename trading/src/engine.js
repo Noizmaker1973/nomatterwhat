@@ -443,7 +443,8 @@ class TradingEngine extends EventEmitter {
         this.config.symbols,
         (prices) => this.onPrices(prices),
         (mode, message) => {
-          const changed = mode !== this.priceFeed.mode;
+          // Log every stream problem (each has its own attempt count), other modes once.
+          const changed = mode !== this.priceFeed.mode || (mode === 'error' && message !== this.priceFeed.message);
           this.priceFeed = { mode, message };
           if (changed) this.addAlert(mode === 'error' ? 'error' : 'info', message);
         }
