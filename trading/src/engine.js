@@ -41,6 +41,9 @@ class TradingEngine extends EventEmitter {
     this.tradesFile = path.join(config.dataDir, `${broker.mode}-trades.json`);
     this.positions = readJson(this.positionsFile, {});
     this.trades = readJson(this.tradesFile, []);
+    // Last signal per coin, saved so a restart doesn't re-alert the same signal.
+    this.signalStateFile = path.join(config.dataDir, 'signal-state.json');
+    this.lastSignal = readJson(this.signalStateFile, {});
   }
 
   // ---------------------------------------------------------------- scanning
@@ -77,15 +80,20 @@ class TradingEngine extends EventEmitter {
       const streamed = Date.now() - (this.priceAt[symbol] || 0) < 15000;
       const price = streamed ? this.prices[symbol] : lastClose;
 
-      const previous = this.signals[symbol];
       this.candles[symbol] = candles;
       if (!streamed) this.prices[symbol] = price;
       this.signals[symbol] = { symbol, ...signal, livePrice: price, updatedAt: Date.now() };
       this.updateLiveScore(symbol, true);
       delete this.errors[symbol];
 
-      const isNew = signal.signal !== 'HOLD' && (!previous || previous.signal !== signal.signal || previous.time !== signal.time);
-      if (isNew) {
+      // Alert only when a coin's signal changes (e.g. HOLD -> SELL), not on
+      // every candle that repeats the same signal.
+      const changed = signal.signal !== this.lastSignal[symbol];
+      if (changed) {
+        this.lastSignal[symbol] = signal.signal;
+        writeJson(this.signalStateFile, this.lastSignal);
+      }
+      if (changed && signal.signal !== 'HOLD') {
         const text = `${signal.signal} ${symbol} @ ${fmt(price)} (score ${signal.score}) - ${signal.reasons.slice(0, 3).join('; ')}`;
         this.addAlert(signal.signal === 'BUY' ? 'buy' : 'sell', text, true);
       }

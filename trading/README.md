@@ -18,7 +18,7 @@ A self-hosted platform that watches **BTC, ETH, SOL and BNB**, generates **buy/s
 | **Paper trading** | Simulated account against real prices (with fees and slippage). This is the default |
 | **Risk management** | Risk-per-trade sizing, max position size per coin, daily loss limit that pauses new buys |
 | **Backtester** | Replays the strategy on historical candles and compares it to buy-and-hold |
-| **Alerts** | Optional Discord and/or Telegram notifications for signals and trades |
+| **Alerts** | A signal alert fires only when a coin's signal changes (e.g. HOLD → SELL), not on every candle that repeats it. Optional Discord and/or Telegram notifications for signals and trades |
 
 ## Quick start
 

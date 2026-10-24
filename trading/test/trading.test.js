@@ -155,6 +155,30 @@ test('a closed candle starts a new one and schedules re-analysis', async () => {
   assert.strictEqual(candles[candles.length - 1][1], price);
 });
 
+test('alerts only when the signal changes', async () => {
+  // Thresholds that make every bar a SELL
+  const engine = makeEngine({ strategy: { buyThreshold: 100, sellThreshold: 100 } });
+  const sellAlerts = () => engine.alerts.filter((a) => a.type === 'sell').length;
+  await engine.scan();
+  assert.strictEqual(sellAlerts(), 1);
+  engine.signals['BTC/USDT'].time -= 3600e3; // next candle, same SELL signal
+  await engine.scan();
+  assert.strictEqual(sellAlerts(), 1);
+
+  // A restart remembers the last signal and stays quiet
+  const restarted = makeEngine({ dataDir: engine.config.dataDir, strategy: { buyThreshold: 100, sellThreshold: 100 } });
+  await restarted.scan();
+  assert.strictEqual(restarted.alerts.filter((a) => a.type === 'sell').length, 0);
+
+  // SELL -> HOLD is silent, HOLD -> SELL alerts again
+  engine.config.strategy = { buyThreshold: 100, sellThreshold: -100 };
+  await engine.scan();
+  assert.strictEqual(sellAlerts(), 1);
+  engine.config.strategy = { buyThreshold: 100, sellThreshold: 100 };
+  await engine.scan();
+  assert.strictEqual(sellAlerts(), 2);
+});
+
 test('backtest runs end to end on demo data', async () => {
   const candles = await new DemoMarketData().fetchHistory('ETH/USDT', '1h', 1500);
   const r = backtest(candles, { risk, strategy: { buyThreshold: 3, sellThreshold: -3 } });
