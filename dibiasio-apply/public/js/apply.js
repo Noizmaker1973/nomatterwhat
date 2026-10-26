@@ -163,7 +163,7 @@
       <div class="doc" data-doc="${d.id}">
         <div class="doc-head">
           <div><b>${esc(d.label)} ${d.req ? '<span class="pill warn">Required</span>' : '<span class="pill">If applicable</span>'}</b>
-          ${d.help ? '<span class="small muted">' + esc(d.help) + '</span>' : ''}</div>
+          ${d.help ? '<span class="small muted">' + esc(d.help) + '</span>' : ''}${d.download ? '<br><a class="small" href="' + esc(d.download) + '" target="_blank" download>⬇ Download the blank guarantor form (PDF)</a>' : ''}</div>
           <label class="btn secondary small">Add file<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden"></label>
         </div>
         <ul></ul>

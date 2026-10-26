@@ -28,7 +28,7 @@
           <div class="doc ${have(d.id).length ? 'done' : ''}">
             <div class="doc-head">
               <div><b>${esc(d.label)} ${have(d.id).length ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Needed</span>' : ''}</b>
-              ${d.help ? '<span class="small muted">' + esc(d.help) + '</span>' : ''}</div>
+              ${d.help ? '<span class="small muted">' + esc(d.help) + '</span>' : ''}${d.download ? '<br><a class="small" href="' + esc(d.download) + '" target="_blank" download>⬇ Download the blank guarantor form (PDF)</a>' : ''}</div>
               <label class="btn secondary small">Upload<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden" data-doc="${d.id}"></label>
             </div>
             ${have(d.id).length ? '<ul>' + have(d.id).map((f) => '<li><span>📄</span><span class="name">' + esc(f.name) + '</span><span class="muted small">' + new Date(f.uploadedAt).toLocaleDateString() + '</span></li>').join('') + '</ul>' : ''}

@@ -126,12 +126,13 @@ module.exports = {
     url: dashboardUrl,
   }),
   // Sent from the company address, shown as "Agent Name | Dibiasio Realty", replies to the agent.
-  sendAs: (agent, { to, subject, text }) => transport.sendMail({
+  sendAs: (agent, { to, subject, text, attachments }) => transport.sendMail({
     from: { name: agent.name + ' | ' + FROM_NAME, address: FROM_ADDRESS },
     replyTo: agent.email,
     to,
     subject,
     text,
+    attachments,
   }),
   newApplication: ({ deal, appRecord, agent, form, dashboardUrl }) => alert(agent && agent.email, {
     subject: 'New ' + form.short + ' application: ' + appRecord.summary.name,

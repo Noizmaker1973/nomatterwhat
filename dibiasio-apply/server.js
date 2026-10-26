@@ -327,12 +327,13 @@ app.post('/api/alerts/test', rateLimit(10, 3600e3), async (req, res) => {
 // Agents email applicants straight from the dashboard. Mail goes out from the
 // company mailbox; replies go to the agent who sent it.
 app.post('/api/email', rateLimit(60, 3600e3), async (req, res) => {
-  const { to, subject, text, dealId } = req.body || {};
+  const { to, subject, text, dealId, attachGuarantor } = req.body || {};
   if (!notify.enabled) return res.status(400).json({ error: 'Email sending isn\'t set up yet.' });
   if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(to || '').trim())) return res.status(400).json({ error: 'Enter a valid email address.' });
   if (!subject || !text) return res.status(400).json({ error: 'Subject and message are required.' });
   try {
-    await notify.sendAs(req.agent, { to: String(to).trim(), subject: String(subject).slice(0, 200), text: String(text).slice(0, 10000) });
+    const attachments = attachGuarantor ? [{ filename: 'Guarantor Form.pdf', path: path.join(__dirname, 'public', 'forms', 'guarantor-form.pdf') }] : undefined;
+    await notify.sendAs(req.agent, { to: String(to).trim(), subject: String(subject).slice(0, 200), text: String(text).slice(0, 10000), attachments });
   } catch (e) {
     console.error('[email]', e.message);
     return res.status(502).json({ error: 'The email couldn\'t be sent. Check the email settings and try again.' });

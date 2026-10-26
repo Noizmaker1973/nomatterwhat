@@ -60,3 +60,17 @@ test('dashboard email goes out from the company mailbox with the agent as reply-
   assert.match(msg, /To: renter@example\.com/);
   assert.match(msg, /Here is your link/);
 });
+
+test('the guarantor form is downloadable and can be attached to a dashboard email', async () => {
+  const pdf = await fetch('http://127.0.0.1:' + PORT + '/forms/guarantor-form.pdf');
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+
+  messages.length = 0;
+  const res = await fetch('http://127.0.0.1:' + PORT + '/api/email', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ to: 'renter@example.com', subject: 'Guarantor form', text: 'Please have your guarantor complete this.', attachGuarantor: true }),
+  });
+  assert.equal(res.status, 200, await res.text());
+  assert.match(messages.join('\n'), /filename="?Guarantor Form\.pdf"?/);
+});

@@ -44,7 +44,7 @@
   const mailLink = (subject, text, to) => 'mailto:' + encodeURIComponent(to || '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text);
 
   // Send from the company mailbox when SMTP is configured; otherwise open the agent's mail app.
-  function emailCompose({ to = '', subject, text, dealId }) {
+  function emailCompose({ to = '', subject, text, dealId, attachGuarantor = false }) {
     if (!config.emailEnabled) {
       if (config.composeWith === 'gmail') {
         const url = 'https://mail.google.com/mail/?authuser=' + encodeURIComponent(me.email) + '&view=cm&fs=1&to=' + encodeURIComponent(to) +
@@ -61,6 +61,7 @@
       <div class="fld"><h3 style="margin:0">Send email</h3><span class="small muted">From ${esc(me.name)} | Dibiasio Realty · replies go to ${esc(me.email)}</span></div>
       <div class="fld"><label class="lbl" for="em-to">To</label><input id="em-to" type="email" required value="${esc(to)}" placeholder="applicant@example.com"></div>
       <div class="fld"><label class="lbl" for="em-subject">Subject</label><input id="em-subject" required value="${esc(subject)}"></div>
+      ${attachGuarantor ? '<div class="fld small">📎 Guarantor form (PDF) will be attached</div>' : ''}
       <div class="fld"><label class="lbl" for="em-text">Message</label><textarea id="em-text" required style="min-height:160px">${esc(text)}</textarea></div>
       <div class="fld"><div id="em-err" class="notice bad hidden"></div><div class="nav-row" style="margin-top:0"><button type="button" class="btn secondary" data-cancel>Cancel</button><button class="btn">Send</button></div></div>
     </form>`;
@@ -76,7 +77,7 @@
       btn.disabled = true;
       btn.textContent = 'Sending…';
       try {
-        await api('/api/email', { method: 'POST', body: { to: form.querySelector('#em-to').value, subject: form.querySelector('#em-subject').value, text: form.querySelector('#em-text').value, dealId } });
+        await api('/api/email', { method: 'POST', body: { to: form.querySelector('#em-to').value, subject: form.querySelector('#em-subject').value, text: form.querySelector('#em-text').value, dealId, attachGuarantor } });
         close();
         toast('Email sent');
       } catch (err) {
@@ -236,27 +237,39 @@
     };
   }
 
-  function linkMessage(deal) {
+  function linkMessage(deal, extra) {
     const where = propertyLine(deal.sheet);
-    return 'Hi! Here is your rental application' + (where ? ' for ' + where : '') + ' with Dibiasio Realty. Fill it out, sign, and upload your ID and pay stubs here: ' + deal.link + ' — ' + me.name;
+    return 'Hi! Here is your rental application' + (where ? ' for ' + where : '') + ' with Dibiasio Realty. Fill it out, sign, and upload your ID and pay stubs here: ' + deal.link + (extra ? '\n\n' + extra : '') + ' — ' + me.name;
   }
 
+  const guarantorUrl = () => location.origin + DR.GUARANTOR_URL;
+  const guarantorNote = (uploadUrl) => 'If you need a guarantor, here is the Guarantor Form: ' + guarantorUrl() +
+    ' Your guarantor fills it out and signs it in front of a notary. Then upload it ' + (uploadUrl ? 'here: ' + uploadUrl : 'with your application') + ' or reply with a copy.';
+  const guarantorMessage = (name, uploadUrl) => 'Hi' + (name ? ' ' + name : '') + ', ' + guarantorNote(uploadUrl) + ' — ' + me.name;
+
   function renderLinkCreated(deal) {
-    const msg = linkMessage(deal);
+    let msg = linkMessage(deal);
     $app.innerHTML = `<div class="card" style="max-width:720px;margin:0 auto">
       <div class="success-icon">✓</div>
       <h1>Link ready</h1>
       <p class="muted">${esc(FORMS[deal.formType].title)}${propertyLine(deal.sheet) ? ' · ' + esc(propertyLine(deal.sheet)) : ''}. Every applicant who uses this link is added to the same deal.</p>
       <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn" id="cp">Copy link</button></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <a class="btn secondary" href="${esc(smsLink(msg))}">Text it</a>
+        <a class="btn secondary" id="sms" href="${esc(smsLink(msg))}">Text it</a>
         <button class="btn secondary" id="em">Email it</button>
         <button class="btn secondary" id="cpm">Copy message</button>
         <a class="btn ghost" href="#deal/${deal.id}">Open deal →</a>
-      </div></div>`;
+      </div>
+      <label class="small" style="display:block;margin-top:14px"><input type="checkbox" id="with-guarantor"> Include the guarantor form (if they'll need a guarantor)</label>
+      </div>`;
+    const withGuarantor = document.getElementById('with-guarantor');
+    withGuarantor.onchange = () => {
+      msg = linkMessage(deal, withGuarantor.checked ? guarantorNote() : '');
+      document.getElementById('sms').href = smsLink(msg);
+    };
     document.getElementById('cp').onclick = () => copy(deal.link);
     document.getElementById('cpm').onclick = () => copy(msg, 'Message');
-    document.getElementById('em').onclick = () => emailCompose({ subject: 'Your rental application', text: msg, dealId: deal.id });
+    document.getElementById('em').onclick = () => emailCompose({ subject: 'Your rental application', text: msg, dealId: deal.id, attachGuarantor: withGuarantor.checked });
   }
 
   /* -------------------------------- deal -------------------------------- */
@@ -300,6 +313,8 @@
           <div class="card"><h3>Applicant link</h3><p class="muted small">Send to co-applicants — everyone who applies with it is added here.</p>
             <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn secondary small" id="cp-link">Copy</button></div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(smsLink(linkMessage(deal)))}">Text</a><button class="btn ghost small" id="em-link">Email</button></div>
+            <h3 style="margin-top:18px">Guarantor form</h3><p class="muted small">Blank form for applicants who need a guarantor. It must be notarized.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(DR.GUARANTOR_URL)}" target="_blank">View</a><button class="btn ghost small" id="em-guar">Email form</button><button class="btn ghost small" id="cp-guar">Copy link</button></div>
           </div>
           <div class="card"><h3>Activity</h3><ul class="activity">${(deal.activity || []).map((a) => '<li><time>' + new Date(a.at).toLocaleString() + ' · ' + esc(a.who) + '</time>' + esc(a.text) + '</li>').join('') || '<li class="muted">Nothing yet.</li>'}</ul></div>
           ${me.role === 'admin' ? '<div class="card"><h3>Delete</h3><p class="muted small">Permanently deletes this deal, its applications and documents.</p><button class="btn danger small" id="del">Delete deal</button></div>' : ''}
@@ -321,6 +336,8 @@
     document.getElementById('assign').onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { agentId: e.target.value } }); toast('Agent updated'); renderDeal(id); };
     document.getElementById('cp-link').onclick = () => copy(deal.link);
     document.getElementById('em-link').onclick = () => emailCompose({ subject: 'Your rental application', text: linkMessage(deal), dealId: deal.id });
+    document.getElementById('em-guar').onclick = () => emailCompose({ subject: 'Guarantor form for your rental application', text: guarantorMessage('', deal.link), dealId: deal.id, attachGuarantor: true });
+    document.getElementById('cp-guar').onclick = () => copy(guarantorUrl(), 'Guarantor form link');
     const del = document.getElementById('del');
     if (del) del.onclick = async () => {
       if (!confirm('Permanently delete this deal and all of its applications and documents?')) return;
@@ -361,7 +378,7 @@
           <select class="input" data-up-type>${docs.map((d) => '<option value="' + d.id + '">' + esc(d.label) + '</option>').join('')}</select>
           <label class="btn secondary small">Upload for applicant<input type="file" multiple class="hidden" data-up></label>
           ${missing.length ? '<button class="btn ghost small" data-email-docs>Email “please upload” request</button><button class="btn ghost small" data-req-docs>Copy message</button>' : ''}
-          ${a.email ? '<button class="btn ghost small" data-email-app>Email applicant</button>' : ''}
+          ${a.email ? '<button class="btn ghost small" data-email-app>Email applicant</button><button class="btn ghost small" data-email-guar>Email guarantor form</button>' : ''}
           <button class="btn ghost small" data-status-link>Copy applicant's upload link</button>
         </div>
 
@@ -397,6 +414,8 @@
       if (rd) rd.onclick = () => copy(docsMsg(form, a), 'Message');
       const ed = q('[data-email-docs]');
       if (ed) ed.onclick = () => emailCompose({ to: a.email, subject: 'Documents needed for your rental application', text: docsMsg(form, a), dealId: deal.id });
+      const eg = q('[data-email-guar]');
+      if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: 'Guarantor form for your rental application', text: guarantorMessage(firstName(a), a.statusUrl), dealId: deal.id, attachGuarantor: true });
       const ea = q('[data-email-app]');
       if (ea) ea.onclick = () => emailCompose({ to: a.email, subject: 'Your rental application' + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: 'Hi ' + firstName(a) + ',\n\n\n\n' + me.name + '\nDibiasio Realty' + (me.phone ? '\n' + me.phone : ''), dealId: deal.id });
       const ec = q('[data-email-credit]');

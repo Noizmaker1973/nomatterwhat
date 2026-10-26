@@ -34,6 +34,11 @@
   const MONEY_PERIODS = ['per month', 'per week', 'every 2 weeks', 'per year'];
 
   // Documents that every application asks for in some form.
+  // Blank guarantor form (must be notarized), offered on every application.
+  const GUARANTOR_URL = '/forms/guarantor-form.pdf';
+  const GUARANTOR_STEPS = 'Download the form, have your guarantor fill it out and sign it in front of a notary, then upload it here.';
+  const DOC_GUARANTOR = { id: 'guarantor', label: 'Guarantor form', help: 'Only if you\'re using a guarantor. ' + GUARANTOR_STEPS, download: GUARANTOR_URL };
+
   const DOC_ID = { id: 'photo_id', label: 'Photo ID', help: 'Driver\'s license preferred, or passport / state ID. One for every adult. A clear phone photo is fine.', req: true };
 
   const FORMS = {
@@ -162,6 +167,7 @@
         { id: 'pay_stubs', label: 'Last three pay stubs', help: 'Or copies of your last three pay checks.', req: true },
         { id: 'tax_return', label: 'Most recent tax return (Form 1040)' },
         { id: 'other_income', label: 'Proof of other income', help: 'Award letters, voucher paperwork, etc. Note: bank statements are not accepted as proof of income.' },
+        DOC_GUARANTOR,
         { id: 'reference_letter', label: 'Personal reference letter', help: 'Optional.' },
       ],
       certification: 'I/We hereby certify that the information furnished on this application is true and complete, to the best of my/our knowledge and belief. Inquiries may be made to verify the statements herein. All information is regarded as confidential in nature, and a consumer credit report and a Criminal Offender Record Information (CORI) report may also be requested. I/We understand that false statements or information are punishable under State or Federal law. Signed under the pains and penalties of perjury.',
@@ -274,7 +280,7 @@
         DOC_ID,
         { id: 'pay_stubs', label: 'Two consecutive recent pay stubs', help: 'Dated within the last six weeks. Self-employed: current tax return. Retired: proof of liquid assets of $100,000+. Exchange visitors: J-1 visa.', req: true },
         { id: 'student_verification', label: 'Student verification', help: 'Course schedule or enrollment letter with your name and school, or a valid I-20 for international students.' },
-        { id: 'guarantor', label: 'Guarantor application', help: 'Only if you\'re a recent graduate (within 6 months) using a guarantor.' },
+        { ...DOC_GUARANTOR, help: 'Only if you\'re using a guarantor (Hamilton accepts guarantors for recent graduates within 6 months of graduation). ' + GUARANTOR_STEPS },
         { id: 'pet_docs', label: 'Pet documents', help: 'Vaccination / license records, if you have pets.' },
       ],
       authorization: 'I hereby authorize all third parties indicated on my application to furnish the information requested to The Hamilton Company and its rental agent. I release all third parties, their officers, agents, and employees from any and all liability associated with such disclosure of the requested information.',
@@ -415,6 +421,7 @@
       documents: [
         DOC_ID,
         { id: 'pay_stubs', label: 'Proof of income', help: 'Recent pay stubs, offer letter, or tax return.', req: true },
+        DOC_GUARANTOR,
         { id: 'other', label: 'Other documents', help: 'Anything else your agent asked for.' },
       ],
       certification: 'Pursuant to Massachusetts law, Management shall not make any inquiry concerning race, religious creed, color, national origin, sex, sexual orientation, gender identity, age (except if a minor), ancestry, marital status, veteran or military status, disability, genetic information, or receipt of public assistance or housing subsidy. I authorize the Management and/or Renting Agency to obtain or cause to be prepared a consumer credit report relating to me. Neither the Owner nor the Management is responsible for the loss of personal belongings caused by fire, theft, smoke, water or otherwise, unless caused by their negligence. I warrant that all statements herein are true and agree to execute upon presentation a lease or Tenancy at Will agreement in the usual form, which may be terminated by the Lessor if any statement herein is not true. Any deposit is to be applied as shown on the deal terms, or applied to actual damages sustained by the Owner, except it is to be refunded if this application is not accepted by the Owner. This application and deposit are taken subject to previous applications. The Renting Agent is an independent contractor and has no authority to make any representation concerning the premises; the Renting Agent is only authorized to show the apartment and assist in screening applicants.',
@@ -503,7 +510,7 @@
     };
   }
 
-  const api = { FORMS, DEAL_SHEET, STATUSES, STATES, num, monthly, dealPrefill };
+  const api = { FORMS, DEAL_SHEET, STATUSES, STATES, GUARANTOR_URL, num, monthly, dealPrefill };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DR = api;
 })(this);

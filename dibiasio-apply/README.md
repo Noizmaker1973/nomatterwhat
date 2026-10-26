@@ -51,6 +51,13 @@ documents (ID, pay stubs, tax return, …) into one PDF. Photos (JPEG, PNG, HEIC
 are turned upright and converted to PDF pages; Word documents get a placeholder page. Credit
 reports are left out unless `?credit=1` is added. Any photo can also be opened alone as a PDF.
 
+## Guarantor form
+
+The blank guarantor form (`public/forms/guarantor-form.pdf`, notarized) is offered on every
+application as an optional "Guarantor form" upload with a download link. In the dashboard, agents
+can include it when sending an applicant link, or send it on its own from a deal or an applicant
+card. With SMTP the PDF is attached; with Gmail drafts the message carries a link to it.
+
 ## Health notices
 
 The dashboard shows a notice when the storage disk passes 80% (yellow) or 95% (red), and emails
