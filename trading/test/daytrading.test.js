@@ -76,6 +76,9 @@ test('screener keeps liquid, non-stable, top-ranked coins', () => {
   const ranked = filterByRank(candidates, tickers, { DOGE: 9, AVAX: 70 }, 50);
   assert.deepStrictEqual(ranked.map((c) => c.base), ['DOGE'], 'AVAX outside top 50, TINY too illiquid');
 
+  const lowerCutoff = filterByRank(candidates, tickers, { DOGE: 9, TINY: 40 }, 50, 1000);
+  assert.deepStrictEqual(lowerCutoff.map((c) => c.base).sort(), ['DOGE', 'TINY'], '--min-volume lets thin coins in');
+
   const byVolume = filterByRank(candidates, tickers, null, 1);
   assert.deepStrictEqual(byVolume.map((c) => c.base), ['DOGE'], 'without ranks, volume decides');
 });

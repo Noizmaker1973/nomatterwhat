@@ -29,10 +29,10 @@ function candidateMarkets(markets, quote, exclude) {
 
 // Adds market-cap rank and volume, then keeps liquid coins within the rank limit.
 // Without ranks (CoinGecko unreachable), the top `maxRank` coins by volume stand in.
-function filterByRank(candidates, tickers, ranks, maxRank) {
+function filterByRank(candidates, tickers, ranks, maxRank, minVolume = MIN_VOLUME) {
   const withData = candidates
     .map((c) => ({ ...c, volume: tickers[c.symbol]?.quoteVolume || 0, rank: ranks ? ranks[c.base] ?? null : null }))
-    .filter((c) => c.volume >= MIN_VOLUME);
+    .filter((c) => c.volume >= minVolume);
   if (ranks) return withData.filter((c) => c.rank !== null && c.rank <= maxRank);
   return withData.sort((a, b) => b.volume - a.volume).slice(0, maxRank);
 }
@@ -63,15 +63,16 @@ async function fetchMarketCapRanks() {
 }
 
 function parseArgs(argv) {
-  const args = { top: 3, maxRank: 50 };
+  const args = { top: 3, maxRank: 50, minVolume: MIN_VOLUME };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--top') args.top = parseInt(argv[++i], 10);
     else if (argv[i] === '--max-rank') args.maxRank = parseInt(argv[++i], 10);
+    else if (argv[i] === '--min-volume') args.minVolume = parseFloat(argv[++i]);
   }
   return args;
 }
 
-const money = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${(n / 1e3).toFixed(0)}k`);
+const money = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : `${Math.round(n)}`);
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -89,9 +90,21 @@ async function main() {
   } catch (err) {
     console.log(`Could not reach CoinGecko (${err.message}); using 24h trading volume instead of market cap.\n`);
   }
-  const shortlist = filterByRank(candidates, tickers, ranks, args.maxRank);
+  const shortlist = filterByRank(candidates, tickers, ranks, args.maxRank, args.minVolume);
+  // Top-ranked coins the exchange lists but barely trades: shown so you know they exist.
+  const thin = ranks
+    ? candidates
+        .map((c) => ({ ...c, volume: tickers[c.symbol]?.quoteVolume || 0, rank: ranks[c.base] ?? null }))
+        .filter((c) => c.rank !== null && c.rank <= args.maxRank && c.volume < args.minVolume)
+        .sort((a, b) => a.rank - b.rank)
+    : [];
+  if (thin.length) {
+    console.log(`Skipped for low trading volume on ${exchange.id} (under ${money(args.minVolume)} ${config.quote} a day):`);
+    console.log(`  ${thin.map((c) => `${c.base} #${c.rank} (${money(c.volume)})`).join(', ')}`);
+    console.log('  Lower the cutoff with --min-volume (e.g. --min-volume 25000) to include them, at the cost of worse fills.\n');
+  }
   if (!shortlist.length) {
-    console.log('No coins matched. Try --max-rank 100.');
+    console.log('No coins matched. Try --max-rank 100 or a lower --min-volume.');
     return;
   }
 

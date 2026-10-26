@@ -150,7 +150,7 @@ Your main coins (`SYMBOLS`) are the **swing** group. You can add a separate **da
    ```bash
    npm run screen
    ```
-   It lists your exchange's coins that are in the **top 50 by market cap** (from CoinGecko), excluding stablecoins and your main coins, ranks them by **volatility** over the last 30 days, and stars the top three. If CoinGecko can't be reached, it uses 24h trading volume instead. Check the volume column: thinly traded coins fill at worse prices.
+   It lists your exchange's coins that are in the **top 50 by market cap** (from CoinGecko), excluding stablecoins and your main coins, ranks them by **volatility** over the last 30 days, and stars the top three. If CoinGecko can't be reached, it uses 24h trading volume instead. Check the volume column: thinly traded coins fill at worse prices. Top-50 coins your exchange lists but barely trades (under $100k a day) are named separately; `--min-volume 25000` lets them in.
 2. **Test them before trusting any signal.** The day settings are used even before the coins are added:
    ```bash
    npm run optimize -- DOGE AVAX LINK --group day
