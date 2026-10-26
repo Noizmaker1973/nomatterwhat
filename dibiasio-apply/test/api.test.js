@@ -43,7 +43,7 @@ function application(extra = {}) {
 before(async () => {
   server = spawn(process.execPath, ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, PUBLIC_URL: BASE, DATA_KEY: 'a'.repeat(64), ADMIN_EMAIL: '', SMTP_URL: '', CREDIT_SCREENING_URL: 'https://screening.example.com/apply' },
+    env: { ...process.env, STORAGE_WARN_PCT: '101', STORAGE_CRITICAL_PCT: '101', PORT: String(PORT), DATA_DIR: dataDir, PUBLIC_URL: BASE, DATA_KEY: 'a'.repeat(64), ADMIN_EMAIL: '', SMTP_URL: '', CREDIT_SCREENING_URL: 'https://screening.example.com/apply' },
     stdio: 'pipe',
   });
   await new Promise((resolve, reject) => {

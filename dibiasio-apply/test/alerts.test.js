@@ -23,7 +23,7 @@ before(async () => {
   }).listen(NTFY_PORT);
   server = spawn(process.execPath, ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, DATA_KEY: 'a1'.repeat(32), PERSISTENT_DISK: '', SMTP_URL: '', SMTP_HOST: '', PUBLIC_URL: base,
+    env: { ...process.env, STORAGE_WARN_PCT: '101', STORAGE_CRITICAL_PCT: '101', PORT: String(PORT), DATA_DIR: dataDir, DATA_KEY: 'a1'.repeat(32), PERSISTENT_DISK: '', SMTP_URL: '', SMTP_HOST: '', PUBLIC_URL: base,
       NTFY_SERVER: 'http://127.0.0.1:' + NTFY_PORT, NTFY_TOPIC: 'secret-topic', NOTIFY_EMAIL: '',
       ADMIN_NAME: 'James Guilford', ADMIN_EMAIL: 'james@dibiasiorealty.com', ADMIN_PASSWORD: 'long enough password' },
     stdio: 'pipe',
@@ -79,7 +79,7 @@ test('with a Resend key, alerts are emailed through the Resend API', async () =>
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dr-resend-'));
   const child = spawn(process.execPath, ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(port), DATA_DIR: dir, DATA_KEY: 'b2'.repeat(32), PERSISTENT_DISK: '', SMTP_URL: '', SMTP_HOST: '', NTFY_TOPIC: '',
+    env: { ...process.env, STORAGE_WARN_PCT: '101', STORAGE_CRITICAL_PCT: '101', PORT: String(port), DATA_DIR: dir, DATA_KEY: 'b2'.repeat(32), PERSISTENT_DISK: '', SMTP_URL: '', SMTP_HOST: '', NTFY_TOPIC: '',
       RESEND_API_KEY: 're_test', RESEND_API_URL: 'http://127.0.0.1:' + fake.address().port + '/emails', NOTIFY_EMAIL: 'james@dibiasiorealty.com',
       ADMIN_NAME: 'James Guilford', ADMIN_EMAIL: 'james@dibiasiorealty.com', ADMIN_PASSWORD: 'long enough password' },
     stdio: 'pipe',

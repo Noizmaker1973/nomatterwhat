@@ -7,6 +7,7 @@ const auth = require('./lib/auth');
 const notify = require('./lib/notify');
 const { fillOriginal } = require('./lib/original');
 const { buildPackage, fileAsPdf } = require('./lib/package');
+const health = require('./lib/health');
 const { FORMS, STATUSES, dealPrefill } = require('./public/js/forms');
 
 const PORT = process.env.PORT || 5050;
@@ -74,6 +75,19 @@ const log = (deal, who, text) => {
   deal.activity.unshift({ at: new Date().toISOString(), who, text });
   deal.activity = deal.activity.slice(0, 200);
 };
+
+// A failed alert means an agent may never hear about an application, so record
+// it for the dashboard's notice and on the deal itself.
+const alertFailed = (deal, what) => (e) => {
+  console.error('[notify] alert failed:', e.message);
+  const property = [deal.sheet.address, deal.sheet.unit && 'Unit ' + deal.sheet.unit].filter(Boolean).join(', ');
+  health.recordFailure({ what, dealId: deal.id, property, error: e.message });
+  try {
+    log(deal, 'System', 'Alert failed to send: ' + what);
+    store.saveDeal(deal);
+  } catch (err) { console.error('[notify] could not log failure on deal:', err.message); }
+};
+const checkStorage = () => health.checkStorage((st) => notify.storageWarning(st, PUBLIC_URL + '/agent'));
 
 function attachFiles(appRecord, files, by) {
   const added = [];
@@ -154,7 +168,10 @@ app.get('/api/public/agent/:id', (req, res) => {
   res.json(auth.publicAgent(agent));
 });
 
-app.post('/api/public/applications', rateLimit(15, 3600e3), upload.any(), async (req, res) => {
+app.post('/api/public/applications', rateLimit(15, 3600e3), upload.any(), (req, res, next) => submitApplication(req, res).catch(next));
+
+// Express 4 doesn't catch errors thrown in async handlers, so this is wrapped above.
+async function submitApplication(req, res) {
   let payload;
   try { payload = JSON.parse(req.body.payload || '{}'); } catch { return res.status(400).json({ error: 'Invalid submission.' }); }
 
@@ -206,7 +223,8 @@ app.post('/api/public/applications', rateLimit(15, 3600e3), upload.any(), async 
   log(deal, appRecord.summary.name, 'Submitted application with ' + appRecord.files.length + ' document(s)');
   store.saveDeal(deal);
 
-  notify.newApplication({ deal, appRecord, agent: deal.agentId && auth.get(deal.agentId), form, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch((e) => console.error('[notify] alert failed:', e.message));
+  notify.newApplication({ deal, appRecord, agent: deal.agentId && auth.get(deal.agentId), form, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch(alertFailed(deal, 'New application from ' + appRecord.summary.name));
+  checkStorage();
 
   res.json({
     ok: true,
@@ -215,7 +233,7 @@ app.post('/api/public/applications', rateLimit(15, 3600e3), upload.any(), async 
     coApplicantUrl: PUBLIC_URL + '/apply?d=' + deal.token,
     creditScreeningUrl: CONFIG.creditScreeningUrl,
   });
-});
+}
 
 // Applicant's private link for adding documents after submitting.
 app.get('/api/public/status/:token', (req, res) => {
@@ -240,7 +258,8 @@ app.post('/api/public/status/:token/files', rateLimit(30, 3600e3), upload.any(),
   if (deal) {
     log(deal, a.summary.name, 'Uploaded ' + added.length + ' more document(s)');
     store.saveDeal(deal);
-    notify.moreDocuments({ deal, appRecord: a, agent: deal.agentId && auth.get(deal.agentId), count: added.length, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch((e) => console.error('[notify] alert failed:', e.message));
+    notify.moreDocuments({ deal, appRecord: a, agent: deal.agentId && auth.get(deal.agentId), count: added.length, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch(alertFailed(deal, a.summary.name + ' uploaded ' + added.length + ' document(s)'));
+    checkStorage();
   }
   res.json({ ok: true, added: added.length });
 });
@@ -284,7 +303,15 @@ app.delete('/api/agents/:id', auth.requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.use(['/api/deals', '/api/apps', '/api/files', '/api/email', '/api/alerts'], auth.require);
+app.use(['/api/deals', '/api/apps', '/api/files', '/api/email', '/api/alerts', '/api/health'], auth.require);
+
+app.get('/api/health', async (req, res) => {
+  res.json({ storage: await checkStorage(), failures: health.failures() });
+});
+app.post('/api/health/dismiss', (req, res) => {
+  health.dismissFailures();
+  res.json({ ok: true });
+});
 
 app.post('/api/alerts/test', rateLimit(10, 3600e3), async (req, res) => {
   if (!notify.alertsConfigured) return res.status(400).json({ error: 'No alert channel is set up (SMTP, RESEND_API_KEY or NTFY_TOPIC).' });
@@ -463,7 +490,15 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Each file must be 20 MB or smaller.' : err.message });
   }
   console.error(err);
+  if (err.code === 'ENOSPC') {
+    health.recordFailure({ what: 'A submission or upload could not be saved because storage is full (' + req.method + ' ' + req.path + ')', error: err.message });
+    notify.storageWarning({ ...(health.storage()), level: 2 }, PUBLIC_URL + '/agent').catch(() => {});
+  }
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
 });
 
-app.listen(PORT, () => console.log('Dibiasio Realty applications running at ' + PUBLIC_URL));
+app.listen(PORT, () => {
+  console.log('Dibiasio Realty applications running at ' + PUBLIC_URL);
+  checkStorage();
+  setInterval(checkStorage, 60 * 60 * 1000).unref();
+});

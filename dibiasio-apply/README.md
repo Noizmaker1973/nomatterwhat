@@ -51,6 +51,14 @@ documents (ID, pay stubs, tax return, …) into one PDF. Photos (JPEG, PNG, HEIC
 are turned upright and converted to PDF pages; Word documents get a placeholder page. Credit
 reports are left out unless `?credit=1` is added. Any photo can also be opened alone as a PDF.
 
+## Health notices
+
+The dashboard shows a notice when the storage disk passes 80% (yellow) or 95% (red), and emails
+an alert the first time each level is reached (`STORAGE_WARN_PCT` / `STORAGE_CRITICAL_PCT` change
+the thresholds). It also lists every alert that failed to send, linked to the application it was
+about, so a new application can't go unnoticed; agents dismiss the list once they've checked.
+A submission that can't be saved because the disk is full is recorded the same way.
+
 ## Email
 
 With `SMTP_HOST`, `SMTP_USER` and `SMTP_PASS` set (see `.env.example`), the portal sends mail

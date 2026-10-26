@@ -101,6 +101,7 @@
       agents = await api('/api/agents').catch(() => []);
     }
     document.getElementById('nav').classList.remove('hidden');
+    renderHealth();
     const [view, arg] = location.hash.replace(/^#/, '').split('/');
     try {
       if (view === 'deal' && arg) return await renderDeal(arg);
@@ -111,6 +112,30 @@
       $app.innerHTML = '<div class="card notice bad">' + esc(e.message) + '</div>';
     }
   }
+  // Storage and failed-alert notices, refreshed on every page change.
+  async function renderHealth() {
+    const box = document.getElementById('health-notices');
+    let h;
+    try { h = await api('/api/health'); } catch (e) { return; }
+    let html = '';
+    const st = h.storage;
+    if (st && st.level) {
+      html += '<div class="notice ' + (st.level === 2 ? 'bad' : 'warn') + '" style="margin:0 0 10px"><b>Storage is ' + st.pct + '% full</b> (' + st.usedMB + ' MB of ' + st.totalMB + ' MB used, ' + st.freeMB + ' MB left). ' +
+        (st.level === 2 ? 'New applications may soon fail to save. ' : '') +
+        'Increase the disk size in Render: open the <b>dibiasio-apply</b> service, go to <b>Disks</b>, and raise the size.</div>';
+    }
+    if (h.failures.length) {
+      html += '<div class="notice bad" style="margin:0 0 10px"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><b>' + h.failures.length + ' alert' + (h.failures.length > 1 ? 's' : '') +
+        ' failed to send. Check these so nothing is missed:</b><button class="btn secondary small" id="dismiss-failures">Dismiss</button></div><ul style="margin:8px 0 0;padding-left:20px">' +
+        h.failures.map((f) => '<li>' + new Date(f.at).toLocaleString() + ' · ' + (f.dealId ? '<a href="#deal/' + esc(f.dealId) + '">' + esc(f.what) + '</a>' : esc(f.what)) +
+          (f.property ? ' · ' + esc(f.property) : '') + '<br><span class="small muted">' + esc(f.error) + '</span></li>').join('') + '</ul></div>';
+    }
+    box.innerHTML = html;
+    box.classList.toggle('hidden', !html);
+    const d = document.getElementById('dismiss-failures');
+    if (d) d.onclick = async () => { await api('/api/health/dismiss', { method: 'POST' }); renderHealth(); };
+  }
+
   document.getElementById('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }); me = null; location.hash = ''; route(); };
 
   /* -------------------------------- login ------------------------------- */

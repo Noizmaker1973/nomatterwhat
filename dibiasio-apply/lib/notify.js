@@ -116,6 +116,15 @@ module.exports = {
     message: 'Alerts are working. New applications will show up like this.',
     url: dashboardUrl,
   }),
+  storageWarning: (st, dashboardUrl) => alert(null, {
+    subject: (st.level === 2 ? 'URGENT: ' : '') + 'Application portal storage is ' + st.pct + '% full',
+    text: 'The application portal has used ' + st.usedMB + ' MB of its ' + st.totalMB + ' MB storage disk (' + st.freeMB + ' MB left).\n\n' +
+      (st.level === 2 ? 'New applications may start failing to save. ' : '') +
+      'Increase the disk size in Render: open the dibiasio-apply service, go to Disks, and raise the size.\n\n' + dashboardUrl,
+    title: 'Storage ' + st.pct + '% full',
+    message: 'Application portal storage is ' + st.pct + '% full. Increase the disk size in Render.',
+    url: dashboardUrl,
+  }),
   // Sent from the company address, shown as "Agent Name | Dibiasio Realty", replies to the agent.
   sendAs: (agent, { to, subject, text }) => transport.sendMail({
     from: { name: agent.name + ' | ' + FROM_NAME, address: FROM_ADDRESS },

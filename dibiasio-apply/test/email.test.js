@@ -35,7 +35,7 @@ before(async () => {
   }).listen(SMTP_PORT);
   server = spawn(process.execPath, ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, DATA_KEY: 'd'.repeat(64), PERSISTENT_DISK: '', SMTP_URL: '',
+    env: { ...process.env, STORAGE_WARN_PCT: '101', STORAGE_CRITICAL_PCT: '101', PORT: String(PORT), DATA_DIR: dataDir, DATA_KEY: 'd'.repeat(64), PERSISTENT_DISK: '', SMTP_URL: '',
       SMTP_HOST: '127.0.0.1', SMTP_PORT: String(SMTP_PORT), SMTP_USER: 'james@dibiasiorealty.com', SMTP_PASS: 'x', MAIL_FROM_ADDRESS: 'james@dibiasiorealty.com',
       ADMIN_NAME: 'James Guilford', ADMIN_EMAIL: 'james@dibiasiorealty.com', ADMIN_PASSWORD: 'long enough password' },
     stdio: 'pipe',
