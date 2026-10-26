@@ -190,7 +190,7 @@ async function main() {
 if (require.main === module) {
   main().catch((err) => {
     console.error(`Startup failed: ${err.message}`);
-    process.exit(1);
+    process.exit(3); // start-trader.cmd stops instead of retrying a broken setup
   });
 }
 
