@@ -48,6 +48,8 @@ npm run screen                           # suggest volatile top-50 coins for day
 npm test                                 # unit tests
 ```
 
+**On Windows**, you can instead double-click **`start-trader.cmd`** in the `trading` folder. It installs packages on first run, starts the platform, opens the dashboard, and restarts the platform automatically if it ever stops. Close its window to stop trading. For one-click access, right-click it → Show more options → Send to → Desktop (create shortcut).
+
 ## Connecting your exchange (live trading)
 
 1. **Pick an exchange** that lists all four coins and set `EXCHANGE` in `.env`:

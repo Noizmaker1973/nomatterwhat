@@ -180,9 +180,9 @@ async function main() {
     if (err.code === 'EADDRINUSE') {
       console.error(`Port ${config.port} is already in use: the platform is probably already running in another window.`);
       console.error('Stop that one first (Ctrl+C in its window), or open http://localhost:' + config.port + ' to use it.');
-    } else {
-      console.error(`Server error: ${err.message}`);
+      process.exit(2); // start-trader.cmd uses this to avoid a restart loop
     }
+    console.error(`Server error: ${err.message}`);
     process.exit(1);
   });
 }
