@@ -48,6 +48,21 @@ class TradingEngine extends EventEmitter {
     this.lastSignal = readJson(this.signalStateFile, {});
   }
 
+  // Each coin's group decides its timeframe, strategy, limits and auto-trading.
+  // Plain configs (tests) have a single implicit group.
+  settingsFor(symbol) {
+    return (
+      this.config.settingsFor?.(symbol) || {
+        name: 'main',
+        label: 'Swing',
+        timeframe: this.config.timeframe,
+        strategy: this.config.strategy,
+        risk: this.config.risk,
+        autoTrade: true,
+      }
+    );
+  }
+
   // ---------------------------------------------------------------- scanning
 
   async scan() {
@@ -72,11 +87,12 @@ class TradingEngine extends EventEmitter {
 
   async scanSymbol(symbol) {
     try {
-      const candles = await this.marketData.fetchCandles(symbol, this.config.timeframe, this.config.candleLimit);
+      const { timeframe, strategy } = this.settingsFor(symbol);
+      const candles = await this.marketData.fetchCandles(symbol, timeframe, this.config.candleLimit);
       // Only judge fully closed candles; the latest one is still forming.
-      const tf = timeframeMs(this.config.timeframe);
+      const tf = timeframeMs(timeframe);
       const closed = candles[candles.length - 1][0] + tf > Date.now() ? candles.slice(0, -1) : candles;
-      const signal = analyze(closed, this.config.strategy);
+      const signal = analyze(closed, strategy);
       // Prefer the streamed price; fall back to the candle if the feed is quiet.
       const lastClose = candles[candles.length - 1][4];
       const streamed = Date.now() - (this.priceAt[symbol] || 0) < 15000;
@@ -108,10 +124,10 @@ class TradingEngine extends EventEmitter {
 
   onPrices(prices) {
     const now = Date.now();
-    const tf = timeframeMs(this.config.timeframe);
     let candleClosed = false;
     for (const [symbol, price] of Object.entries(prices)) {
       if (!this.config.symbols.includes(symbol) || !(price > 0)) continue;
+      const tf = timeframeMs(this.settingsFor(symbol).timeframe);
       this.prices[symbol] = price;
       this.priceAt[symbol] = now;
 
@@ -154,7 +170,7 @@ class TradingEngine extends EventEmitter {
     if (!force && Date.now() - (this.liveScoredAt[symbol] || 0) < 1000) return;
     this.liveScoredAt[symbol] = Date.now();
     try {
-      const live = analyze(candles, this.config.strategy);
+      const live = analyze(candles, this.settingsFor(symbol).strategy);
       signal.live = { score: live.score, signal: live.signal };
     } catch {
       // Not enough history yet; keep the last value.
@@ -206,7 +222,7 @@ class TradingEngine extends EventEmitter {
     const exit = this.checkStops(symbol);
     if (exit) return exit;
 
-    if (!this.autoTrade || this.lastActedCandle[symbol] === signal.time) return;
+    if (!this.autoTrade || !this.settingsFor(symbol).autoTrade || this.lastActedCandle[symbol] === signal.time) return;
 
     if (signal.signal === 'BUY' && !held) {
       if (this.guardState.halted) return;
@@ -254,7 +270,7 @@ class TradingEngine extends EventEmitter {
       if (!amount) {
         const sized = sizeBuy(
           { equity: portfolio.equity, cash: portfolio.cash, price, stopLoss: signal?.stopLoss, currentPositionValue: position?.value || 0 },
-          this.config.risk
+          this.settingsFor(symbol).risk
         );
         if (!sized.amount) throw new Error(sized.reason);
         amount = sized.amount;
@@ -367,8 +383,8 @@ class TradingEngine extends EventEmitter {
   chartData(symbol) {
     const candles = this.candles[symbol];
     if (!candles) return null;
-    const tf = timeframeMs(this.config.timeframe);
-    const st = this.config.strategy;
+    const { timeframe, strategy: st } = this.settingsFor(symbol);
+    const tf = timeframeMs(timeframe);
     const forming = candles[candles.length - 1][0] + tf > Date.now();
     const closed = forming ? candles.slice(0, -1) : candles;
     const s = computeSeries(closed);
@@ -410,7 +426,7 @@ class TradingEngine extends EventEmitter {
       ? { side: 'long', entryPrice: meta.entryPrice, stopLoss: meta.stopLoss, takeProfit: meta.takeProfit, trailing: Boolean(meta.trailAtrMult) }
       : null;
 
-    return { symbol, timeframe: this.config.timeframe, tfMs: tf, mode: st.mode, candles, lines, signals, trades, position };
+    return { symbol, timeframe, tfMs: tf, mode: st.mode, candles, lines, signals, trades, position };
   }
 
   // ------------------------------------------------------------ suggestions
@@ -421,7 +437,8 @@ class TradingEngine extends EventEmitter {
     const s = this.signals[symbol];
     const price = this.prices[symbol];
     if (!s || !price || !s.indicators) return { action: 'WAIT', note: 'Waiting for enough price data' };
-    const { buyThreshold, sellThreshold } = this.config.strategy;
+    const settings = this.settingsFor(symbol);
+    const { buyThreshold, sellThreshold } = settings.strategy;
     const position = portfolio.positions.find((p) => p.symbol === symbol);
     const held = position && position.value >= this.config.risk.minOrderSize;
     const round = (n) => Math.round(n * 100) / 100;
@@ -433,7 +450,7 @@ class TradingEngine extends EventEmitter {
       if (s.takeProfit && price >= s.takeProfit) return { action: 'WAIT', note: 'BUY signal, but the price already reached its target. Too late to enter; wait for the next setup.' };
       const sized = sizeBuy(
         { equity: portfolio.equity, cash: portfolio.cash, price, stopLoss: s.stopLoss, currentPositionValue: 0 },
-        this.config.risk
+        settings.risk
       );
       if (!sized.amount) return { action: 'WAIT', note: `BUY signal, but ${sized.reason.toLowerCase()}.` };
       const amount = sized.amount;
@@ -457,7 +474,7 @@ class TradingEngine extends EventEmitter {
         mode: s.mode,
         ma: s.indicators.ma ?? null,
         maPeriod: s.indicators.maPeriod ?? null,
-        sellThreshold: this.config.strategy.sellThreshold,
+        sellThreshold,
         equityPct: (amount / portfolio.equity) * 100,
       };
     }
@@ -508,7 +525,7 @@ class TradingEngine extends EventEmitter {
     if (s.signal === 'BUY' || (s.signal === 'HOLD' && holding)) direction = 'bullish';
     else if (s.signal === 'SELL') direction = 'bearish';
     if (!direction) return null;
-    const tf = timeframeMs(this.config.timeframe);
+    const tf = timeframeMs(this.settingsFor(symbol).timeframe);
     return optionIdea({ direction, price, closes: candles.map((c) => c[4]), tfMs: tf, holding });
   }
 
@@ -518,8 +535,11 @@ class TradingEngine extends EventEmitter {
     const signals = this.config.symbols.map((symbol) => {
       const s = this.signals[symbol];
       if (!s) return { symbol, signal: 'LOADING', livePrice: this.prices[symbol] };
+      const g = this.settingsFor(symbol);
       return {
         ...s,
+        // What the dashboard needs to draw this coin's gauge and label.
+        settings: { group: g.name, label: g.label, timeframe: g.timeframe, autoTrade: g.autoTrade, ...g.strategy },
         livePrice: this.prices[symbol] ?? s.livePrice,
         suggestion: this.suggest(symbol, portfolio),
         optionIdea: this.optionIdeaFor(symbol, s),

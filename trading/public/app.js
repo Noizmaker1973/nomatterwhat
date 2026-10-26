@@ -40,6 +40,15 @@ const post = (path, data) => api(path, { method: 'POST', body: JSON.stringify(da
 
 // ----------------------------------------------------------------- status
 
+// "1d candles · ma strategy", or per group when day trading is on.
+function describeGroups(s) {
+  const groups = s.groups || [];
+  if (groups.length < 2) return `${s.timeframe} candles · ${s.strategy?.mode || 'classic'} strategy`;
+  return groups
+    .map((g) => `${g.label}: ${g.timeframe} ${g.mode}${g.name === 'day' && !g.autoTrade ? ' (signals only)' : ''}`)
+    .join(' · ');
+}
+
 function renderStatus(s) {
   state.status = s;
   const badge = $('#modeBadge');
@@ -48,7 +57,7 @@ function renderStatus(s) {
   $('#autoTrade').checked = s.autoTrade;
   $('#resetBtn').classList.toggle('hidden', s.mode !== 'paper');
   $('#meta').textContent =
-    `${s.exchange} · data: ${s.dataSource} · ${s.timeframe} candles · ${s.strategy?.mode || 'classic'} strategy · ` +
+    `${s.exchange} · data: ${s.dataSource} · ${describeGroups(s)} · ` +
     `last analysis ${s.lastScanAt ? time(s.lastScanAt) : '—'}`;
 
   const banner = $('#banner');
@@ -87,6 +96,7 @@ function renderSignals(signals) {
   for (const s of signals) {
     const card = getCard(s.symbol);
     card.className = `card ${s.signal}`;
+    renderGroupTag(card, s);
     renderPrice(card, s.symbol, s.livePrice);
     const badge = $('.signal', card);
     badge.textContent = s.signal;
@@ -132,7 +142,7 @@ let gaugeRange = 8;
 const gaugePos = (v) => 50 + (Math.max(-gaugeRange, Math.min(gaugeRange, v)) / gaugeRange) * 50;
 
 function renderGauge(card, s) {
-  const { buyThreshold: buy = 3, sellThreshold: sell = -3 } = state.status?.strategy || {};
+  const { buyThreshold: buy = 3, sellThreshold: sell = -3 } = s.settings || state.status?.strategy || {};
   const score = s.score || 0;
   gaugeRange = s.mode === 'ma' ? 20 : 8;
   const sellPos = gaugePos(sell);
@@ -183,6 +193,17 @@ function renderGauge(card, s) {
   $('.live-label', card).textContent = showLive
     ? `Live: ${live.score} (candle still forming)`
     : '';
+}
+
+// With day trading on, each card says which group it belongs to.
+function renderGroupTag(card, s) {
+  const tag = $('.group-tag', card);
+  const g = s.settings;
+  const show = g && (state.status?.groups || []).length > 1;
+  tag.classList.toggle('hidden', !show);
+  if (!show) return;
+  tag.textContent = `${g.label} · ${g.timeframe}${g.group === 'day' && !g.autoTrade ? ' · signals only' : ''}`;
+  tag.className = `group-tag ${g.group}`;
 }
 
 function renderPrice(card, symbol, price) {

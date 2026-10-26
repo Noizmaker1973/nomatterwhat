@@ -66,6 +66,8 @@ section { margin-bottom: 20px; }
 
 .card-head { display: flex; justify-content: space-between; align-items: flex-start; }
 .sym { font-weight: 700; font-size: 16px; }
+.group-tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+.group-tag.day { color: var(--warn); }
 .price { font-size: 22px; font-variant-numeric: tabular-nums; }
 .signal { font-weight: 800; padding: 4px 10px; border-radius: 6px; font-size: 13px; }
 .signal.BUY { background: var(--buy); color: #fff; }

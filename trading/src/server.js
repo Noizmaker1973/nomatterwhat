@@ -51,6 +51,15 @@ function createApp(engine) {
     tokenRequired: Boolean(config.dashboardToken),
     notifications: engine.notifier.enabled,
     priceFeed: engine.priceFeed,
+    groups: config.groups.map((g) => ({
+      name: g.name,
+      label: g.label,
+      symbols: g.symbols,
+      timeframe: g.timeframe,
+      mode: g.strategy.mode,
+      autoTrade: g.autoTrade,
+      maxPositionPct: g.risk.maxPositionPct,
+    })),
   });
 
   app.get('/api/status', (req, res) => res.json(status()));

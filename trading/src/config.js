@@ -13,10 +13,15 @@ const bool = (value, fallback) => {
 };
 
 const quote = (env.QUOTE_CURRENCY || 'USDT').toUpperCase();
-const bases = (env.SYMBOLS || 'BTC,ETH,SOL,BNB')
-  .split(',')
-  .map((s) => s.trim().toUpperCase())
-  .filter(Boolean);
+const list = (value) =>
+  (value || '')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+const bases = list(env.SYMBOLS || 'BTC,ETH,SOL,BNB');
+// Day-trading coins (run `npm run screen` to pick them). A coin can only be in one group.
+const dayBases = list(env.DAY_SYMBOLS).filter((b) => !bases.includes(b));
+const modeOf = (value, fallback) => (['classic', 'trend', 'ma'].includes((value || '').toLowerCase()) ? value.toLowerCase() : fallback);
 
 const requestedMode = (env.TRADING_MODE || 'paper').toLowerCase();
 const liveConfirmed = (env.CONFIRM_LIVE_TRADING || '').toLowerCase() === 'yes';
@@ -48,7 +53,7 @@ const config = {
   },
 
   strategy: {
-    mode: ['trend', 'ma'].includes((env.STRATEGY_MODE || '').toLowerCase()) ? env.STRATEGY_MODE.toLowerCase() : 'classic',
+    mode: modeOf(env.STRATEGY_MODE, 'classic'),
     buyThreshold: num(env.BUY_THRESHOLD, 3),
     sellThreshold: num(env.SELL_THRESHOLD, -3),
     stopAtrMult: num(env.STOP_ATR_MULT, 2),
@@ -71,6 +76,60 @@ const config = {
   },
 
   dataDir: path.join(__dirname, '..', 'data'),
+};
+
+// Coins are traded in groups, each with its own timeframe, strategy and limits:
+//   main - the coins in SYMBOLS, using the settings above
+//   day  - optional day-trading coins in DAY_SYMBOLS, using the DAY_* settings
+const mainGroup = {
+  name: 'main',
+  label: 'Swing',
+  symbols: config.symbols,
+  timeframe: config.timeframe,
+  strategy: config.strategy,
+  risk: config.risk,
+  autoTrade: true, // follows the dashboard's Auto-trade switch
+};
+// The day settings exist even with no DAY_SYMBOLS, so candidate coins can be
+// backtested and optimized with them before being added.
+const daySettings = {
+      name: 'day',
+      label: 'Day',
+      symbols: dayBases.map((b) => `${b}/${quote}`),
+      timeframe: env.DAY_TIMEFRAME || '15m',
+      strategy: {
+        mode: modeOf(env.DAY_STRATEGY_MODE, 'trend'),
+        buyThreshold: num(env.DAY_BUY_THRESHOLD, 4),
+        sellThreshold: num(env.DAY_SELL_THRESHOLD, -3),
+        stopAtrMult: num(env.DAY_STOP_ATR_MULT, 1.5),
+        targetAtrMult: num(env.DAY_TARGET_ATR_MULT, 2),
+        trailAtrMult: num(env.DAY_TRAIL_ATR_MULT, 3),
+        maPeriod: Math.round(num(env.DAY_MA_PERIOD, 50)),
+      },
+      risk: { ...config.risk, maxPositionPct: num(env.DAY_MAX_POSITION_PCT, 10) },
+      // Day coins only auto-trade if this is on AND the dashboard switch is on.
+      autoTrade: bool(env.DAY_AUTO_TRADE, false),
+};
+
+config.groups = daySettings.symbols.length ? [mainGroup, daySettings] : [mainGroup];
+config.symbols = config.groups.flatMap((g) => g.symbols);
+config.settingsFor = (symbol) => config.groups.find((g) => g.symbols.includes(symbol)) || mainGroup;
+config.groupNamed = (name) => ({ main: mainGroup, day: daySettings })[name];
+
+// Which group a backtest/optimizer run uses: --group, or the group of the
+// coins listed, or the main group. Returns the group and the coins to test.
+config.resolveGroup = (bases, groupName) => {
+  if (groupName && !config.groupNamed(groupName)) throw new Error(`Unknown group "${groupName}" (use main or day)`);
+  const listed = bases.map((b) => `${b}/${quote}`);
+  let group = groupName ? config.groupNamed(groupName) : mainGroup;
+  if (!groupName && listed.length) {
+    const groups = [...new Set(listed.map((s) => config.settingsFor(s).name))];
+    if (groups.length > 1) throw new Error('Those coins are in different groups; test one group at a time (or add --group main/day)');
+    group = config.groupNamed(groups[0]);
+  }
+  const symbols = listed.length ? listed : group.symbols;
+  if (!symbols.length) throw new Error('The day group has no coins yet: list some (e.g. DOGE AVAX LINK) or set DAY_SYMBOLS (see npm run screen)');
+  return { group, symbols };
 };
 
 module.exports = config;

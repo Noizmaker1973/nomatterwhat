@@ -10,6 +10,7 @@
     "backtest": "node src/backtest.js",
     "optimize": "node src/optimize.js",
     "configure": "node src/configure.js",
+    "screen": "node src/screen.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {

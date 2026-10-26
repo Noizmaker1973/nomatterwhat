@@ -106,10 +106,11 @@ function checkTimeframe(tf) {
 }
 
 function parseArgs(argv) {
-  const args = { bases: [], bars: 2000, timeframe: config.timeframe };
+  const args = { bases: [], bars: null, timeframe: null, group: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--bars') args.bars = parseInt(argv[++i], 10);
     else if (argv[i] === '--timeframe') args.timeframe = checkTimeframe(argv[++i]);
+    else if (argv[i] === '--group') args.group = argv[++i].toLowerCase();
     else if (argv[i] === '--demo') continue; // handled in config.js
     else args.bases.push(argv[i].toUpperCase());
   }
@@ -118,11 +119,14 @@ function parseArgs(argv) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const symbols = args.bases.length ? args.bases.map((b) => `${b}/${config.quote}`) : config.symbols;
+  const { group, symbols } = config.resolveGroup(args.bases, args.group);
+  args.timeframe = args.timeframe || group.timeframe;
+  args.bars = args.bars || (group.name === 'day' ? 6000 : 2000);
+  const coins = group.symbols.length || symbols.length;
   const marketData = createMarketData(config);
   console.log(
-    `Backtest | ${marketData.name} | ${args.timeframe} | ${args.bars} bars | ${config.strategy.mode} mode | ` +
-      `each coin trades 1/${config.symbols.length} of the account | ` +
+    `Backtest | ${marketData.name} | ${group.label} group | ${args.timeframe} | ${args.bars} bars | ${group.strategy.mode} mode | ` +
+      `each coin trades 1/${coins} of the account | ` +
       `fees ${FEE_RATE * 100}% + slippage ${SLIPPAGE * 100}%\n`
   );
 
@@ -132,7 +136,7 @@ async function main() {
       const candles = await marketData.fetchHistory(symbol, args.timeframe, args.bars);
       if (candles.length <= MIN_CANDLES + 10) throw new Error(`only ${candles.length} candles returned`);
       // Each coin trades its share of one account, like on the platform.
-      const r = backtest(candles, { risk: shareOfAccount(config.risk, config.symbols.length) });
+      const r = backtest(candles, { strategy: group.strategy, risk: shareOfAccount(group.risk, coins) });
       const from = new Date(candles[MIN_CANDLES][0]).toISOString().slice(0, 10);
       const to = new Date(candles[candles.length - 1][0]).toISOString().slice(0, 10);
       rows.push({

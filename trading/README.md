@@ -18,6 +18,7 @@ A self-hosted platform that watches **BTC, ETH, SOL and BNB**, generates **buy/s
 | **Paper trading** | Simulated account against real prices (with fees and slippage). This is the default |
 | **Risk management** | Risk-per-trade sizing, max position size per coin, daily loss limit that pauses new buys |
 | **Live chart** | Candlesticks with the strategy's lines, ▲/▼ arrows where BUY and SELL signals fired, dots for your trades, and dashed entry/stop/target lines. Ticks with the live price. Click a coin's small chart to open it |
+| **Day-trading group** | Optional extra coins (e.g. three volatile top-50 coins picked by `npm run screen`) on a short timeframe with their own strategy and smaller positions. Signals only unless you enable auto-trading for them |
 | **Options ideas** | Each signal comes with a limited-risk options trade and its estimated premium, breakeven, max loss and odds. Estimates only, no options orders |
 | **Backtester** | Replays the strategy on historical candles and compares it to buy-and-hold |
 | **Alerts** | A signal alert fires only when a coin's signal changes (e.g. HOLD → SELL), not on every candle that repeats it. Optional Discord and/or Telegram notifications for signals and trades |
@@ -43,6 +44,7 @@ npm run backtest -- --demo               # any command accepts --demo for synthe
 npm run optimize                         # find settings that held up on unseen history
 npm run configure -- TIMEFRAME=1d MA_PERIOD=50   # change .env settings (keeps everything else)
 npm run configure                        # show the current strategy settings
+npm run screen                           # suggest volatile top-50 coins for day trading
 npm test                                 # unit tests
 ```
 
@@ -138,6 +140,29 @@ It prints your current settings next to the best ones, then the `.env` lines for
 
 **Reading the results:** `expo%` is how much of the account was invested on average. With the default risk settings (1% risk per trade, max 25% per coin, four coins) the stop-based modes are usually well under half invested, while buy and hold is always 100% invested. So a strategy can be good and still return far less than buy and hold in a rising market. It wins by being out of the market during drops. Compare drawdowns, not only returns.
 
+## Day trading
+
+Your main coins (`SYMBOLS`) are the **swing** group. You can add a separate **day-trading group** of more volatile coins that runs on short candles with its own strategy, alongside the swing group:
+
+1. **Find candidates:**
+   ```bash
+   npm run screen
+   ```
+   It lists your exchange's coins that are in the **top 50 by market cap** (from CoinGecko), excluding stablecoins and your main coins, ranks them by **volatility** over the last 30 days, and stars the top three. If CoinGecko can't be reached, it uses 24h trading volume instead. Check the volume column: thinly traded coins fill at worse prices.
+2. **Test them before trusting any signal.** The day settings are used even before the coins are added:
+   ```bash
+   npm run optimize -- DOGE AVAX LINK --group day
+   ```
+   By default this tests 15-minute and 1-hour candles over ~6,000 candles. Short timeframes are noisy and fees add up quickly, so a day strategy has a higher bar to clear.
+3. **Add them** (and apply the optimizer's settings if they held up):
+   ```bash
+   npm run configure -- DAY_SYMBOLS=DOGE,AVAX,LINK
+   ```
+
+Day coins show on the dashboard with a **DAY** label, their own timeframe and their own trigger levels. By default they are **signals only**: the dashboard shows BUY/SELL and suggested trades, and you can click to place them, but auto-trade leaves them alone unless `DAY_AUTO_TRADE=true`. Each day coin is limited to `DAY_MAX_POSITION_PCT` (10%) of the account.
+
+`npm run backtest -- --group day` and `npm run optimize -- --group day` test the day group; without `--group` they test the swing group.
+
 ## Options ideas
 
 Each coin card has an **Options idea (estimate)** panel that matches the signal with a **limited-risk** options trade:
@@ -161,6 +186,11 @@ Prices are **estimates**: Black-Scholes with the coin's recent realized volatili
 | `TARGET_ATR_MULT` | 3 | Classic: take-profit distance above entry, in ATRs |
 | `TRAIL_ATR_MULT` | 3 | Trend: trailing-stop distance below the highest price, in ATRs |
 | `MA_PERIOD` | 200 | Moving average: length of the average, in candles |
+| `DAY_SYMBOLS` | (empty) | Day-trading coins, e.g. `DOGE,AVAX,LINK`. Empty = no day trading |
+| `DAY_TIMEFRAME` | 15m | Candle size for day coins |
+| `DAY_STRATEGY_MODE` and other `DAY_*` strategy settings | trend, 4, −3, 1.5, 2, 3, 50 | Same meaning as the swing settings above, for day coins |
+| `DAY_MAX_POSITION_PCT` | 10 | Max % of the account in any one day coin |
+| `DAY_AUTO_TRADE` | false | Let auto-trade act on day coins (otherwise signals only) |
 | `RISK_PER_TRADE_PCT` | 1 | If the stop-loss is hit you lose about this % of equity. Position size = risk ÷ stop distance |
 | `MAX_POSITION_PCT` | 25 | Never put more than this % of equity in one coin |
 | `DAILY_LOSS_LIMIT_PCT` | 5 | Once equity is this % down for the day (UTC), new buys stop until tomorrow |
@@ -195,6 +225,7 @@ trading/
 │   ├── optimize.js        # train/test settings search (CLI)
 │   ├── options.js         # Black-Scholes options ideas (estimates)
 │   ├── configure.js       # update .env settings safely (CLI)
+│   ├── screen.js          # day-trading coin screener (CLI)
 │   ├── cli.js             # terminal signal check
 │   └── notifier.js        # Discord / Telegram
 ├── public/                # dashboard (HTML/CSS/JS, no build step)

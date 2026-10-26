@@ -78,3 +78,20 @@ test('timeframes PowerShell mangled into numbers get a helpful error', () => {
   assert.throws(() => checkTimeframe('1'), /PowerShell/);
   assert.strictEqual(checkTimeframe('1d'), '1d');
 });
+
+test('config resolves which group a backtest uses', () => {
+  delete require.cache[require.resolve('../src/config')];
+  process.env.DAY_SYMBOLS = 'DOGE,AVAX';
+  const config = require('../src/config');
+  try {
+    assert.deepStrictEqual(config.symbols.slice(-2), ['DOGE/USDT', 'AVAX/USDT']);
+    assert.strictEqual(config.resolveGroup([], null).group.name, 'main');
+    assert.strictEqual(config.resolveGroup(['DOGE'], null).group.name, 'day');
+    assert.deepStrictEqual(config.resolveGroup([], 'day').symbols, ['DOGE/USDT', 'AVAX/USDT']);
+    assert.strictEqual(config.resolveGroup(['LINK', 'SUI'], 'day').group.name, 'day', 'candidates can be tested before adding');
+    assert.throws(() => config.resolveGroup(['BTC', 'DOGE'], null), /different groups/);
+  } finally {
+    delete process.env.DAY_SYMBOLS;
+    delete require.cache[require.resolve('../src/config')];
+  }
+});

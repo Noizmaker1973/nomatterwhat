@@ -141,11 +141,12 @@ function optimize(datasets, { top = 5, risk = shareOfAccount(config.risk, datase
 }
 
 function parseArgs(argv) {
-  const args = { bases: [], bars: 3000, timeframes: ['1h', '4h'], train: 2 / 3 };
+  const args = { bases: [], bars: null, timeframes: null, train: 2 / 3, group: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--bars') args.bars = parseInt(argv[++i], 10);
     else if (argv[i] === '--timeframes') args.timeframes = argv[++i].split(',').map((t) => checkTimeframe(t.trim()));
     else if (argv[i] === '--train') args.train = parseFloat(argv[++i]);
+    else if (argv[i] === '--group') args.group = argv[++i].toLowerCase();
     else if (argv[i] === '--demo') continue; // handled in config.js
     else args.bases.push(argv[i].toUpperCase());
   }
@@ -180,14 +181,17 @@ const day = (t) => new Date(t).toISOString().slice(0, 10);
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const symbols = args.bases.length ? args.bases.map((b) => `${b}/${config.quote}`) : config.symbols;
+  const { group, symbols } = config.resolveGroup(args.bases, args.group);
+  const isDay = group.name === 'day';
+  args.timeframes = args.timeframes || (isDay ? ['15m', '1h'] : ['1h', '4h']);
+  args.bars = args.bars || (isDay ? 6000 : 3000);
   const marketData = createMarketData(config);
   const perMode = Object.values(GRID).map((g) => combinations(g).length);
   console.log(`Each coin trades 1/${symbols.length} of the account, with your risk settings applied to the whole account.`);
-  console.log(`Optimizer | ${marketData.name} | ${symbols.join(', ')} | ${args.bars} bars per timeframe`);
+  console.log(`Optimizer | ${marketData.name} | ${group.label} group | ${symbols.join(', ')} | ${args.bars} bars per timeframe`);
   console.log(`Trying ${perMode.reduce((a, b) => a + b)} settings per timeframe, ranked on the first ${Math.round(args.train * 100)}% of history, checked on the rest.\n`);
 
-  const current = { ...config.strategy };
+  const current = { ...group.strategy };
   const rows = [];
   let overall = null;
 
@@ -204,7 +208,7 @@ async function main() {
         `test ${day(d0.candles[d0.split][0])} → ${day(d0.candles[d0.candles.length - 1][0])}`
     );
 
-    const result = optimize(datasets);
+    const result = optimize(datasets, { risk: shareOfAccount(group.risk, group.symbols.length || datasets.length) });
     const now = result.evaluate(current);
     rows.push(row(`now ${describe(current)}`, tf, now.train, now.test));
     result.best.forEach((r, k) => {
@@ -238,21 +242,24 @@ async function main() {
   const holds = t.returnPct > 0 && t.profitFactor > 1 && t.trades >= MIN_TRADES_PER_COIN * symbols.length;
   if (holds) {
     console.log(`Best setting held up on unseen data: ${t.returnPct.toFixed(2)}% return, profit factor ${pf(t.profitFactor)}.`);
-    console.log('To paper trade it, put these lines in your .env and restart:\n');
+    console.log('To paper trade it, apply these settings and restart:\n');
   } else {
     console.log('WARNING: even the best setting did NOT hold up on unseen data');
     console.log(`(test return ${t.returnPct.toFixed(2)}%, profit factor ${pf(t.profitFactor)}, ${t.trades} trades).`);
-    console.log('Do not trade it with real money. If you want to paper trade it anyway, the .env lines are:\n');
+    console.log('Do not trade it with real money. If you want to paper trade it anyway, the settings are:\n');
   }
   const st = overall.strategy;
-  console.log(`  TIMEFRAME=${overall.tf}`);
-  console.log(`  STRATEGY_MODE=${st.mode}`);
-  console.log(`  BUY_THRESHOLD=${st.buyThreshold}`);
-  console.log(`  SELL_THRESHOLD=${st.sellThreshold}`);
-  if (st.mode === 'ma') console.log(`  MA_PERIOD=${st.maPeriod}`);
-  else console.log(`  STOP_ATR_MULT=${st.stopAtrMult}`);
-  if (st.mode === 'trend') console.log(`  TRAIL_ATR_MULT=${st.trailAtrMult}`);
-  if (st.mode === 'classic') console.log(`  TARGET_ATR_MULT=${st.targetAtrMult}`);
+  const prefix = isDay ? 'DAY_' : ''; // day-group settings have their own names
+  const settings = [
+    ['TIMEFRAME', overall.tf],
+    ['STRATEGY_MODE', st.mode],
+    ['BUY_THRESHOLD', st.buyThreshold],
+    ['SELL_THRESHOLD', st.sellThreshold],
+    ...(st.mode === 'ma' ? [['MA_PERIOD', st.maPeriod]] : [['STOP_ATR_MULT', st.stopAtrMult]]),
+    ...(st.mode === 'trend' ? [['TRAIL_ATR_MULT', st.trailAtrMult]] : []),
+    ...(st.mode === 'classic' ? [['TARGET_ATR_MULT', st.targetAtrMult]] : []),
+  ].map(([k, v]) => `${prefix}${k}=${v}`);
+  console.log(`  npm run configure -- ${settings.join(' ')}`);
   console.log('\nPast performance does not guarantee future results.');
 }
 
