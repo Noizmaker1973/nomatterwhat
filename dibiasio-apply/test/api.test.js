@@ -187,3 +187,22 @@ test('agents can update their profile; email requires SMTP', async () => {
   assert.equal(res.status, 400);
   assert.equal((await call('/api/email', { method: 'POST', json: { to: 'a@example.com', subject: 'Hi', text: 'x' }, auth: false })).status, 401);
 });
+
+test('agents can add and delete notes on an application; others cannot delete them', async () => {
+  const deal = (await call('/api/deals', { method: 'POST', json: { formType: 'standard', sheet: { address: '7 Note St' } } })).body;
+  assert.equal((await call('/api/deals/' + deal.id + '/notes', { method: 'POST', json: { text: '  ' } })).status, 400);
+  const notes = (await call('/api/deals/' + deal.id + '/notes', { method: 'POST', json: { text: 'Called landlord, waiting on reference' } })).body;
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].by, /^James/);
+  const listed = (await call('/api/deals')).body.find((d) => d.id === deal.id);
+  assert.equal(listed.notes[0].text, 'Called landlord, waiting on reference');
+  assert.equal((await call('/api/deals/' + deal.id + '/notes', { method: 'POST', json: { text: 'x' }, auth: false })).status, 401);
+
+  // A regular agent can't delete someone else's note; the admin who wrote it can.
+  const adminCookie = cookie;
+  await call('/api/agents', { method: 'POST', json: { name: 'Aaron', email: 'aaron@dibiasiorealty.com', password: 'another long password', role: 'agent' } });
+  await call('/api/login', { method: 'POST', json: { email: 'aaron@dibiasiorealty.com', password: 'another long password' }, keepCookie: true });
+  assert.equal((await call('/api/deals/' + deal.id + '/notes/' + notes[0].id, { method: 'DELETE' })).status, 403);
+  cookie = adminCookie;
+  assert.deepEqual((await call('/api/deals/' + deal.id + '/notes/' + notes[0].id, { method: 'DELETE' })).body, []);
+});

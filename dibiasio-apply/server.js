@@ -137,6 +137,7 @@ function dealSummary(deal) {
     createdAt: deal.createdAt, updatedAt: deal.updatedAt,
     applicants: store.appsForDeal(deal).map(appSummary),
     link: PUBLIC_URL + '/apply?d=' + deal.token,
+    notes: deal.notes || [],
   };
 }
 function newDeal(formType, agentId, sheet) {
@@ -375,6 +376,29 @@ app.put('/api/deals/:id', (req, res) => {
   if (sheet) log(deal, req.agent.name, 'Updated deal sheet');
   store.saveDeal(deal);
   res.json(dealSummary(deal));
+});
+
+// Internal agent notes on an application. Never included in anything sent to landlords.
+app.post('/api/deals/:id/notes', (req, res) => {
+  const deal = store.getDeal(req.params.id);
+  if (!deal) return res.status(404).json({ error: 'Not found.' });
+  const text = String((req.body && req.body.text) || '').trim();
+  if (!text) return res.status(400).json({ error: 'Write a note first.' });
+  deal.notes = deal.notes || [];
+  deal.notes.unshift({ id: store.id(), at: new Date().toISOString(), byId: req.agent.id, by: req.agent.name, text: text.slice(0, 5000) });
+  log(deal, req.agent.name, 'Added a note');
+  store.saveDeal(deal);
+  res.json(deal.notes);
+});
+app.delete('/api/deals/:id/notes/:noteId', (req, res) => {
+  const deal = store.getDeal(req.params.id);
+  const note = deal && (deal.notes || []).find((n) => n.id === req.params.noteId);
+  if (!note) return res.status(404).json({ error: 'Not found.' });
+  if (note.byId !== req.agent.id && req.agent.role !== 'admin') return res.status(403).json({ error: 'You can only delete your own notes.' });
+  deal.notes = deal.notes.filter((n) => n !== note);
+  log(deal, req.agent.name, 'Deleted a note');
+  store.saveDeal(deal);
+  res.json(deal.notes);
 });
 
 app.delete('/api/deals/:id', auth.requireAdmin, (req, res) => {

@@ -179,7 +179,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn secondary" id="my-link">Copy my apply link</button><a class="btn" href="#new">+ New applicant link</a></div></div>
       <div class="stats">${['New', 'In review', 'Docs needed', 'Sent to landlord', 'Approved'].map((s) => '<div class="stat' + (filters.status === s ? ' on' : '') + '" data-s="' + esc(s) + '"><b>' + (counts[s] || 0) + '</b><span>' + esc(s) + '</span></div>').join('')}</div>
       <div class="toolbar">
-        <input class="input" id="q" placeholder="Search applicant, property, landlord…" value="${esc(filters.q)}">
+        <input class="input" id="q" placeholder="Search applicant, property, landlord, notes…" value="${esc(filters.q)}">
         <select class="input" id="fs"><option value="">All statuses</option>${STATUSES.map((s) => '<option' + (s === filters.status ? ' selected' : '') + '>' + esc(s) + '</option>').join('')}</select>
         <select class="input" id="ff"><option value="">All applications</option>${Object.values(FORMS).map((f) => '<option value="' + f.id + '"' + (f.id === filters.form ? ' selected' : '') + '>' + esc(f.short) + '</option>').join('')}</select>
         <label class="small"><input type="checkbox" id="fm"${filters.mine ? ' checked' : ''}> Mine only</label>
@@ -189,13 +189,13 @@
       const q = filters.q.toLowerCase();
       const rows = deals.filter((d) =>
         (!filters.status || d.status === filters.status) && (!filters.form || d.formType === filters.form) && (!filters.mine || d.agentId === me.id) &&
-        (!q || [propertyLine(d.sheet), d.sheet.landlord, d.agentName, ...d.applicants.map((a) => a.name + ' ' + a.email)].join(' ').toLowerCase().includes(q)));
+        (!q || [propertyLine(d.sheet), d.sheet.landlord, d.agentName, ...d.applicants.map((a) => a.name + ' ' + a.email), ...d.notes.map((n) => n.text)].join(' ').toLowerCase().includes(q)));
       document.getElementById('rows').innerHTML = rows.length ? `<table class="deals"><thead><tr><th>Property</th><th>Applicants</th><th>Application</th><th>Docs</th><th>Status</th><th>Agent</th><th>Updated</th></tr></thead><tbody>
         ${rows.map((d) => {
           const form = FORMS[d.formType];
           const missing = d.applicants.reduce((n, a) => n + missingDocs(form, a).length, 0);
           return `<tr data-id="${d.id}">
-            <td data-l="Property"><b>${esc(propertyLine(d.sheet) || 'No property yet')}</b>${d.sheet.rent ? '<br><span class="muted small">' + money(d.sheet.rent) + '/mo</span>' : ''}</td>
+            <td data-l="Property"><b>${esc(propertyLine(d.sheet) || 'No property yet')}</b>${d.sheet.rent ? '<br><span class="muted small">' + money(d.sheet.rent) + '/mo</span>' : ''}${d.notes.length ? '<br><span class="muted small" title="' + esc(d.notes[0].text.slice(0, 200)) + '">📝 ' + d.notes.length + ' note' + (d.notes.length > 1 ? 's' : '') + ' · latest: ' + esc(d.notes[0].text.slice(0, 50)) + (d.notes[0].text.length > 50 ? '…' : '') + '</span>' : ''}</td>
             <td data-l="Applicants">${d.applicants.length ? d.applicants.map((a) => esc(a.name)).join('<br>') : '<span class="muted">Waiting for applicant</span>'}</td>
             <td data-l="Application">${esc(form.short)}</td>
             <td data-l="Docs">${!d.applicants.length ? '—' : missing ? '<span class="pill warn">' + missing + ' missing</span>' : '<span class="pill ok">Complete</span>'}</td>
@@ -310,6 +310,12 @@
           </div>
         </div>
         <div>
+          <div class="card"><h3>Notes</h3>
+            <p class="muted small">Private to your team. Never included in landlord forms or packages.</p>
+            <textarea class="input" id="note-text" rows="3" placeholder="e.g. Called landlord, waiting on reference…" style="resize:vertical"></textarea>
+            <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn small" id="note-add">Add note</button></div>
+            <ul class="activity" id="notes" style="margin-top:10px"></ul>
+          </div>
           <div class="card"><h3>Applicant link</h3><p class="muted small">Send to co-applicants — everyone who applies with it is added here.</p>
             <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn secondary small" id="cp-link">Copy</button></div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(smsLink(linkMessage(deal)))}">Text</a><button class="btn ghost small" id="em-link">Email</button></div>
@@ -322,6 +328,7 @@
       </div>`;
 
     renderApplicants(deal, form);
+    renderNotes(deal);
 
     const sheetFields = DEAL_SHEET.concat(form.dealSheet || []);
     renderFields(document.getElementById('sheet'), sheetFields, sheet, { onChange: () => totals() });
@@ -343,6 +350,29 @@
       if (!confirm('Permanently delete this deal and all of its applications and documents?')) return;
       await api('/api/deals/' + id, { method: 'DELETE' });
       location.hash = '';
+    };
+  }
+
+  function renderNotes(deal) {
+    const list = document.getElementById('notes');
+    list.innerHTML = deal.notes.length ? deal.notes.map((n) => '<li><time>' + new Date(n.at).toLocaleString() + ' · ' + esc(n.by) +
+      ((n.byId === me.id || me.role === 'admin') ? ' · <a href="#" data-del-note="' + esc(n.id) + '">Delete</a>' : '') + '</time>' +
+      '<span style="white-space:pre-wrap">' + esc(n.text) + '</span></li>').join('') : '<li class="muted">No notes yet.</li>';
+    list.querySelectorAll('[data-del-note]').forEach((a) => a.onclick = async (e) => {
+      e.preventDefault();
+      if (!confirm('Delete this note?')) return;
+      deal.notes = await api('/api/deals/' + deal.id + '/notes/' + a.dataset.delNote, { method: 'DELETE' });
+      renderNotes(deal);
+    });
+    const text = document.getElementById('note-text');
+    document.getElementById('note-add').onclick = async () => {
+      if (!text.value.trim()) return text.focus();
+      try {
+        deal.notes = await api('/api/deals/' + deal.id + '/notes', { method: 'POST', body: { text: text.value } });
+        text.value = '';
+        renderNotes(deal);
+        toast('Note added');
+      } catch (e) { toast(e.message); }
     };
   }
 
