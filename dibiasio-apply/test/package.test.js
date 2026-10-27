@@ -36,8 +36,11 @@ test('package = original form pages, then documents in checklist order, with ima
   assert.deepEqual(size(1), { width: 612, height: 792 }, 'sideways photo is turned upright onto a portrait page');
   assert.deepEqual(size(5), { width: 792, height: 612 }, 'landscape image gets a landscape page');
 
-  const withCredit = await buildPackage({ formType: 'standard', applicants: [{ app, application, files }], sheet: {}, agent: null, docLabels: {}, includeCredit: true });
-  assert.equal((await PDFDocument.load(withCredit)).getPageCount(), pages.length + 2);
+  // Ticking the credit report adds it; unticking the license removes its page.
+  files.find((f) => f.meta.docType === 'credit_report').meta.inPackage = true;
+  files.find((f) => f.meta.docType === 'photo_id').meta.inPackage = false;
+  const custom = await buildPackage({ formType: 'standard', applicants: [{ app, application, files }], sheet: {}, agent: null, docLabels: {} });
+  assert.equal((await PDFDocument.load(custom)).getPageCount(), pages.length + 2 - 1);
 });
 
 test('a single photo converts to a one-page PDF', async () => {

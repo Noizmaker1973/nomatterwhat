@@ -11,6 +11,9 @@ const { fillOriginal } = require('./original');
 const LETTER = [612, 792];
 const MARGIN = 36;
 const DOC_ORDER = ['photo_id', 'pay_stubs', 'tax_return', 'other_income', 'student_verification', 'guarantor', 'pet_docs', 'reference_letter', 'other', 'credit_report'];
+// Agents tick which uploads go into the merged PDF; credit reports start out
+// excluded because landlords usually get them from the screening company.
+const inPackage = (meta) => (typeof meta.inPackage === 'boolean' ? meta.inPackage : meta.docType !== 'credit_report');
 const rank = (docType) => { const i = DOC_ORDER.indexOf(docType); return i < 0 ? DOC_ORDER.length : i; };
 
 // Any image → upright JPEG at most 2000px on its long side.
@@ -69,16 +72,16 @@ async function addFile(doc, font, meta, buffer, label) {
 
 /**
  * applicants: [{ app, application, files: [{ meta, buffer }] }]
- * includeCredit: also append uploaded credit reports
+ * Only files the agent left ticked (see inPackage) are appended.
  */
-async function buildPackage({ formType, applicants, sheet, agent, docLabels, includeCredit = false }) {
+async function buildPackage({ formType, applicants, sheet, agent, docLabels }) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (const { app, application, files } of applicants) {
     const form = await PDFDocument.load(await fillOriginal({ formType, app, application, sheet, agent }));
     (await doc.copyPages(form, form.getPageIndices())).forEach((p) => doc.addPage(p));
     const ordered = files
-      .filter(({ meta }) => includeCredit || meta.docType !== 'credit_report')
+      .filter(({ meta }) => inPackage(meta))
       .sort((a, b) => rank(a.meta.docType) - rank(b.meta.docType) || a.meta.uploadedAt.localeCompare(b.meta.uploadedAt));
     for (const { meta, buffer } of ordered) await addFile(doc, font, meta, buffer, docLabels[meta.docType] || 'Document');
   }
@@ -93,4 +96,4 @@ async function fileAsPdf(meta, buffer) {
   return Buffer.from(await doc.save());
 }
 
-module.exports = { buildPackage, fileAsPdf };
+module.exports = { buildPackage, fileAsPdf, inPackage };

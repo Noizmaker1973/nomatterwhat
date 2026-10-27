@@ -372,8 +372,9 @@
           const files = filesFor(d.id);
           if (!files.length && !d.req && (d.id === 'other' || d.id === 'credit_report')) return '';
           return '<li><div class="row"><span>' + (files.length ? '✅' : d.req ? '⚠️' : '▫️') + ' ' + esc(d.label) + '</span>' + (files.length ? '' : d.req ? '<span class="pill warn">Missing</span>' : '<span class="muted small">If applicable</span>') + '</div>' +
-            (files.length ? '<div class="files">' + files.map((f) => '<a href="/api/files/' + a.id + '/' + f.id + '" target="_blank" title="' + esc(f.name) + '">' + esc(f.name) + (f.by === 'agent' ? ' (agent)' : '') + '</a><a href="/api/files/' + a.id + '/' + f.id + '?download=1" title="Download">⬇</a>' + (/^image\//.test(f.mime) ? '<a href="/api/files/' + a.id + '/' + f.id + '?as=pdf" target="_blank" title="Open this photo as a PDF">PDF</a>' : '')).join('') + '</div>' : '') + '</li>';
+            (files.length ? '<div class="files">' + files.map((f) => '<label class="pkg" title="Include in the merged PDF"><input type="checkbox" data-pkg="' + f.id + '"' + (f.inPackage ? ' checked' : '') + '></label><a href="/api/files/' + a.id + '/' + f.id + '" target="_blank" title="' + esc(f.name) + '">' + esc(f.name) + (f.by === 'agent' ? ' (agent)' : '') + '</a><a href="/api/files/' + a.id + '/' + f.id + '?download=1" title="Download">⬇</a>' + (/^image\//.test(f.mime) ? '<a href="/api/files/' + a.id + '/' + f.id + '?as=pdf" target="_blank" title="Open this photo as a PDF">PDF</a>' : '')).join('') + '</div>' : '') + '</li>';
         }).join('')}</ul>
+        <p class="small muted" style="margin:-4px 0 10px">Tick the documents to include in the merged PDF (<span data-pkg-count></span>).</p>
         <div class="inline-form">
           <select class="input" data-up-type>${docs.map((d) => '<option value="' + d.id + '">' + esc(d.label) + '</option>').join('')}</select>
           <label class="btn secondary small">Upload for applicant<input type="file" multiple class="hidden" data-up></label>
@@ -414,6 +415,17 @@
       if (rd) rd.onclick = () => copy(docsMsg(form, a), 'Message');
       const ed = q('[data-email-docs]');
       if (ed) ed.onclick = () => emailCompose({ to: a.email, subject: 'Documents needed for your rental application', text: docsMsg(form, a), dealId: deal.id });
+      const pkgCount = () => { q('[data-pkg-count]').textContent = a.files.filter((f) => f.inPackage).length + ' of ' + a.files.length + ' included'; };
+      pkgCount();
+      card.querySelectorAll('[data-pkg]').forEach((box) => box.onchange = async () => {
+        const f = a.files.find((x) => x.id === box.dataset.pkg);
+        try {
+          await api('/api/apps/' + a.id + '/files/' + f.id, { method: 'PUT', body: { inPackage: box.checked } });
+          f.inPackage = box.checked;
+          pkgCount();
+          toast(box.checked ? 'Included in the PDF' : 'Left out of the PDF');
+        } catch (e) { box.checked = !box.checked; toast(e.message); }
+      });
       const eg = q('[data-email-guar]');
       if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: 'Guarantor form for your rental application', text: guarantorMessage(firstName(a), a.statusUrl), dealId: deal.id, attachGuarantor: true });
       const ea = q('[data-email-app]');

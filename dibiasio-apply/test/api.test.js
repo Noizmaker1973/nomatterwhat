@@ -120,6 +120,19 @@ test('full flow: link → application with documents → agent review', async ()
   assert.equal(status.files.length, 3);
   assert.ok(!JSON.stringify(status).includes('123-45-6789'), 'status page never exposes answers');
 
+  // Agents choose which uploads go into the merged PDF.
+  const stubs = a.files.find((f) => f.docType === 'pay_stubs');
+  assert.equal(stubs.inPackage, true, 'uploads are included by default');
+  const before = (await call('/api/apps/' + a.id + '/package.pdf')).body;
+  const toggled = await call('/api/apps/' + a.id + '/files/' + stubs.id, { method: 'PUT', json: { inPackage: false } });
+  assert.equal(toggled.body.inPackage, false);
+  const { PDFDocument: PD } = require('pdf-lib');
+  const after = (await call('/api/apps/' + a.id + '/package.pdf')).body;
+  assert.equal((await PD.load(after)).getPageCount(), (await PD.load(before)).getPageCount() - 1, 'unticked pay stub is left out');
+  assert.equal((await call('/api/apps/' + a.id + '/files/' + stubs.id, { method: 'PUT', json: { inPackage: 'no' } })).status, 400);
+  assert.equal((await call('/api/apps/' + a.id + '/files/' + stubs.id, { method: 'PUT', json: { inPackage: true }, auth: false })).status, 401);
+  await call('/api/apps/' + a.id + '/files/' + stubs.id, { method: 'PUT', json: { inPackage: true } });
+
   // The answers printed on the landlord's original form.
   const original = await call('/api/apps/' + a.id + '/original.pdf');
   assert.equal(original.status, 200);

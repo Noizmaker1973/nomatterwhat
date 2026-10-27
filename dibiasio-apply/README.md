@@ -48,8 +48,9 @@ Beantown, Hamilton, or the standard e-FORMS application). The field positions li
 **Landlord package:** *Form + documents (PDF)* on an applicant card, or *Landlord package (PDF)*
 at the top of a deal for every applicant at once, merges the original form(s) with the uploaded
 documents (ID, pay stubs, tax return, …) into one PDF. Photos (JPEG, PNG, HEIC, WebP, GIF, TIFF)
-are turned upright and converted to PDF pages; Word documents get a placeholder page. Credit
-reports are left out unless `?credit=1` is added. Any photo can also be opened alone as a PDF.
+are turned upright and converted to PDF pages; Word documents get a placeholder page. Agents tick
+which uploads to include (a checkbox next to each document); the choice is saved and applies to
+both buttons. Credit reports start unticked. Any photo can also be opened alone as a PDF.
 
 ## Guarantor form
 
