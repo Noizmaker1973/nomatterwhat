@@ -413,7 +413,7 @@
           <button class="btn ghost small" data-status-link>Copy applicant's upload link</button>
         </div>
 
-        <div class="subcard"><h4>Credit report</h4>
+        <div class="subcard"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h4 style="margin:0">Credit report</h4><button class="btn small" data-ygl>Credit check (YGL)</button></div>
           <div class="inline-form">
             <select class="input" data-credit>${['Not requested', 'Requested', 'Received', 'Waived'].map((s) => '<option' + (s === a.credit.status ? ' selected' : '') + '>' + s + '</option>').join('')}</select>
             <input class="input" data-score placeholder="Score" value="${esc(a.credit.score || '')}" style="max-width:110px">
@@ -460,6 +460,15 @@
       if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: 'Guarantor form for your rental application', text: guarantorMessage(firstName(a), a.statusUrl), dealId: deal.id, attachGuarantor: true });
       const ea = q('[data-email-app]');
       if (ea) ea.onclick = () => emailCompose({ to: a.email, subject: 'Your rental application' + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: 'Hi ' + firstName(a) + ',\n\n\n\n' + me.name + '\nDibiasio Realty' + (me.phone ? '\n' + me.phone : ''), dealId: deal.id });
+      q('[data-ygl]').onclick = () => DRYGL.open({
+        formId: form.id, answers: a.application.answers, applicantName: a.name, copy, toast,
+        onCopied: async () => {
+          if (a.credit.status !== 'Not requested') return;
+          a.credit = await api('/api/apps/' + a.id + '/credit', { method: 'PUT', body: { status: 'Requested', notes: a.credit.notes || 'Run on YouGotListings' } }).then((r) => r.credit);
+          const sel = q('[data-credit]');
+          if (sel) sel.value = 'Requested';
+        },
+      });
       const ec = q('[data-email-credit]');
       if (ec) ec.onclick = async () => {
         emailCompose({ to: a.email, subject: 'Credit check for your rental application', text: creditMsg(a), dealId: deal.id });
@@ -505,6 +514,11 @@
     const admin = me.role === 'admin';
     $app.innerHTML = `
       <div class="page-head"><h1>Team</h1></div>
+      <div class="card"><h2>Credit checks on YouGotListings</h2>
+        <p class="muted small">One-time setup: drag this button to your browser's bookmarks bar. If the bookmarks bar is hidden, press Ctrl+Shift+B (Cmd+Shift+B on a Mac).</p>
+        <p><a class="btn secondary" id="ygl-bookmarklet" href="#" title="Drag me to your bookmarks bar">🔖 Fill from Dibiasio</a></p>
+        <p class="muted small" style="margin:0">Then on an application, click <b>Credit check (YGL)</b> → <b>Copy &amp; open YGL</b>. On YGL's credit report page, click the <b>Fill from Dibiasio</b> bookmark, review the filled fields, and submit.</p>
+      </div>
       <div class="card"><h2>Your apply links</h2><p class="muted small">Post these on listings or send them to anyone. Applications come straight to you.</p>
         ${Object.values(FORMS).map((f) => { const url = location.origin + '/apply?f=' + f.id + '&a=' + me.id; return '<div class="copy-row" style="margin-bottom:8px"><input class="input" readonly value="' + esc(url) + '"><button class="btn secondary small" data-copy="' + esc(url) + '">Copy ' + esc(f.short) + '</button></div>'; }).join('')}
         <div class="copy-row"><input class="input" readonly value="${esc(location.origin + '/?a=' + me.id)}"><button class="btn secondary small" data-copy="${esc(location.origin + '/?a=' + me.id)}">Copy chooser</button></div>
@@ -526,6 +540,9 @@
         <div class="fld half"><label class="lbl" for="a-role">Role</label><select id="a-role"><option value="agent">Agent</option><option value="admin">Admin (can add agents & delete deals)</option></select></div>
         <div class="fld"><button class="btn">Add agent</button></div></form></div>` : ''}`;
     $app.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => copy(b.dataset.copy));
+    const bm = document.getElementById('ygl-bookmarklet');
+    bm.href = DRYGL.bookmarklet();
+    bm.onclick = (e) => { e.preventDefault(); toast('Drag this button to your bookmarks bar'); };
     document.getElementById('test-alert').onclick = async (e) => {
       const out = document.getElementById('test-alert-result');
       e.target.disabled = true;

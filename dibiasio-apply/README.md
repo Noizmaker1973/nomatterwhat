@@ -90,6 +90,17 @@ application type, property and a dashboard link go through ntfy, never applicant
 Without SMTP, the Email buttons open a pre-filled draft in the agent's own mail app, or in Gmail
 in the browser when `EMAIL_COMPOSE=gmail` (signed in as the agent's address), so mail still comes from their own account.
 
+## Credit checks on YouGotListings
+
+YGL has no API for credit reports, so the dashboard prepares the data and a bookmarklet fills
+YGL's form. *Credit check (YGL)* on an applicant card lists every adult (Beantown: each household
+member 18+; other forms: the applicant) with first/last name, SSN, street number, street name,
+city, state and ZIP taken from the application, all editable. *Copy & open YGL* copies one
+person's details (prefixed `DRCREDIT:`, valid 15 minutes) and opens
+https://app.yougotlistings.com/credit-reports/create; the *Fill from Dibiasio* bookmarklet (Team
+page) fills the form by matching field names and labels, then clears the clipboard. The agent
+reviews and submits on YGL. Field matching lives in `public/js/ygl.js`.
+
 ## Credit reports
 
 Pulling a consumer credit report requires an account with a tenant-screening provider
