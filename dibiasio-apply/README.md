@@ -38,6 +38,17 @@ change a question you edit one file.
 Each agent also has personal links (*Team* page) to post on listings. Anyone who
 applies through them is assigned to that agent automatically.
 
+## Sending an application back to finish
+
+After submitting, applicants can always add documents from their private link, but their answers
+are locked. To let them finish or correct an application, click **↩ Send back to applicant to
+finish** on their card and say what's needed. Then email, text or copy the link it gives you.
+The applicant sees your note on their status page, opens their saved answers (SSNs and ITINs show
+only the last 4 digits and are kept unless retyped), makes the changes, uploads anything missing,
+signs again and resubmits. You get an alert, the card lists exactly which answers changed, and
+every earlier signed version stays under *Previous versions*. The link stops working once they
+resubmit, or when you click **Close to changes**.
+
 ## Original landlord forms
 
 Each applicant card in the dashboard has a **form (PDF)** button. It prints the applicant's answers,

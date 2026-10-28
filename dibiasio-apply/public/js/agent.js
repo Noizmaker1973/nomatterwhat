@@ -40,6 +40,8 @@
   const firstName = (a) => (a.name || '').split(' ')[0];
   const creditMsg = (a) => 'Hi ' + firstName(a) + ', the landlord needs a credit report for your application. Please complete it here: ' + config.creditScreeningUrl + ' — ' + me.name;
   const docsMsg = (form, a) => 'Hi ' + firstName(a) + ', to finish your application please upload: ' + missingDocs(form, a).map((d) => d.label).join(', ') + '. Use your private link: ' + a.statusUrl + ' — ' + me.name;
+  const reopenMsg = (a) => 'Hi ' + firstName(a) + ', please update your rental application' + (a.reopened && a.reopened.note ? ': ' + a.reopened.note : '.') +
+    '\n\nYour answers are saved. Open this link, make the changes, then sign again and submit: ' + a.editUrl + ' — ' + me.name;
   const smsLink = (text) => 'sms:?&body=' + encodeURIComponent(text);
   const mailLink = (subject, text, to) => 'mailto:' + encodeURIComponent(to || '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text);
 
@@ -199,7 +201,7 @@
             <td data-l="Applicants">${d.applicants.length ? d.applicants.map((a) => esc(a.name)).join('<br>') : '<span class="muted">Waiting for applicant</span>'}</td>
             <td data-l="Application">${esc(form.short)}</td>
             <td data-l="Docs">${!d.applicants.length ? '—' : missing ? '<span class="pill warn">' + missing + ' missing</span>' : '<span class="pill ok">Complete</span>'}</td>
-            <td data-l="Status">${pill(d.status)}</td>
+            <td data-l="Status">${pill(d.status)}${d.applicants.some((a) => a.reopened) ? ' <span class="pill warn" title="Waiting for the applicant to update their application">Sent back</span>' : ''}</td>
             <td data-l="Agent">${esc(d.agentName)}</td>
             <td data-l="Updated" class="muted small">${ago(d.updatedAt)}</td></tr>`;
         }).join('')}</tbody></table>`
@@ -391,11 +393,13 @@
         <div class="applicant-head">
           <div><span class="step-label">Applicant ${i + 1}</span><h2 style="margin:0">${esc(a.name)}</h2>
             <span class="small">${a.email ? '<a href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : ''}${a.phone ? ' · <a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : ''}</span><br>
-            <span class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()} · income ${a.monthlyIncome ? money(a.monthlyIncome) + '/mo' : 'not stated'}</span></div>
+            <span class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()}${a.resubmittedAt ? ' · <b>updated ' + new Date(a.resubmittedAt).toLocaleString() + '</b>' : ''} · income ${a.monthlyIncome ? money(a.monthlyIncome) + '/mo' : 'not stated'}</span></div>
           <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">${missing.length ? '<span class="pill warn">' + missing.length + ' doc(s) missing</span>' : '<span class="pill ok">Docs complete</span>'}
             <a class="btn secondary small" href="/api/apps/${a.id}/original.pdf" target="_blank" title="The applicant's answers printed on ${esc(form.name)}'s original form">📄 ${esc(form.short)} form (PDF)</a>
             <a class="btn small" href="/api/apps/${a.id}/package.pdf" target="_blank" title="${esc(form.short)} form followed by the applicant's ID, pay stubs and other documents, merged into one PDF">📎 Form + documents (PDF)</a></div>
         </div>
+
+        ${reopenHtml(form, a)}
 
         <h4 style="margin:16px 0 0">Document checklist</h4>
         <ul class="checklist">${docs.map((d) => {
@@ -431,6 +435,7 @@
           <div style="margin:10px 0"><label class="small"><input type="checkbox" data-reveal> Show full SSN</label></div>
           <div data-full>${fullApplicationHtml(form, app, false)}</div>
         </details>
+        ${a.history.length ? '<details class="full"><summary>Previous versions (' + a.history.length + ')</summary>' + a.history.map((h) => '<div class="subcard"><h4 style="margin:0">Signed ' + new Date(h.submittedAt).toLocaleString() + ', replaced ' + new Date(h.replacedAt).toLocaleString() + '</h4>' + (h.note ? '<p class="small muted">You asked: ' + esc(h.note) + '</p>' : '') + fullApplicationHtml(form, h.application, false) + '</div>').join('') + '</details>' : ''}
       </div>`;
     }).join('');
 
@@ -460,6 +465,19 @@
       if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: 'Guarantor form for your rental application', text: guarantorMessage(firstName(a), a.statusUrl), dealId: deal.id, attachGuarantor: true });
       const ea = q('[data-email-app]');
       if (ea) ea.onclick = () => emailCompose({ to: a.email, subject: 'Your rental application' + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: 'Hi ' + firstName(a) + ',\n\n\n\n' + me.name + '\nDibiasio Realty' + (me.phone ? '\n' + me.phone : ''), dealId: deal.id });
+      const rb = q('[data-reopen]');
+      if (rb) rb.onclick = () => askReopen(a, deal.id);
+      const rc = q('[data-reopen-close]');
+      if (rc) rc.onclick = async () => {
+        if (!confirm('Close ' + a.name + '\'s application to changes? Their update link will stop working.')) return;
+        await api('/api/apps/' + a.id + '/reopen', { method: 'DELETE' });
+        toast('Closed to changes');
+        renderDeal(deal.id);
+      };
+      const rcp = q('[data-reopen-copy]');
+      if (rcp) rcp.onclick = () => copy(reopenMsg(a), 'Message');
+      const rem = q('[data-reopen-email]');
+      if (rem) rem.onclick = () => emailCompose({ to: a.email, subject: 'Please update your rental application', text: reopenMsg(a), dealId: deal.id });
       q('[data-ygl]').onclick = () => DRYGL.open({
         formId: form.id, answers: a.application.answers, applicantName: a.name, copy, toast,
         onCopied: async () => {
@@ -496,6 +514,63 @@
       toast('Uploaded');
     } catch (e) { toast(e.message); }
     renderDeal(dealId);
+  }
+
+  /* --------------------- sending an application back --------------------- */
+  // Every answer as "Section › Label" → { v: full value, show: what to display (SSNs masked) }.
+  function flatAnswers(form, answers) {
+    const out = {};
+    const walk = (fields, scope, prefix) => {
+      let section = prefix;
+      fields.forEach((f) => {
+        if (f.type === 'heading') { section = prefix + f.label + ' › '; return; }
+        if (!f.k) return;
+        if (f.type === 'group') { (scope[f.k] || []).forEach((item, i) => walk(f.fields, item || {}, prefix + f.itemLabel(i) + ' › ')); return; }
+        const v = DRUI.display(f, scope[f.k], { revealSsn: true });
+        if (v) out[section + f.label] = { v, show: f.type === 'ssn' ? DRUI.maskSsn(v) : v };
+      });
+    };
+    form.steps.forEach((st) => walk(st.fields, answers || {}, ''));
+    return out;
+  }
+  function changesHtml(form, before, after) {
+    const a = flatAnswers(form, before), b = flatAnswers(form, after);
+    const keys = [...new Set(Object.keys(a).concat(Object.keys(b)))].filter((k) => (a[k] && a[k].v) !== (b[k] && b[k].v));
+    if (!keys.length) return '<p class="small muted" style="margin:6px 0 0">No answers changed (they may have re-signed or added documents).</p>';
+    return '<dl class="kv small" style="margin-top:6px">' + keys.map((k) => '<dt>' + esc(k) + '</dt><dd>' + (a[k] ? '<s class="muted">' + esc(a[k].show) + '</s> → ' : '') + (b[k] ? '<b>' + esc(b[k].show) + '</b>' : '<span class="muted">removed</span>') + '</dd>').join('') + '</dl>';
+  }
+
+  function reopenHtml(form, a) {
+    if (a.reopened) {
+      return '<div class="notice warn" style="margin-top:14px"><b>Sent back for changes</b> ' + new Date(a.reopened.at).toLocaleString() + ' by ' + esc(a.reopened.by) +
+        (a.reopened.note ? '<br>“' + esc(a.reopened.note) + '”' : '') + '<br><span class="small">Waiting for ' + esc(firstName(a)) + ' to update and re-sign. Send them the link:</span>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' + (a.email ? '<button class="btn small" data-reopen-email>Email link</button>' : '') +
+        '<a class="btn ghost small" href="' + esc(smsLink(reopenMsg(a))) + '">Text link</a><button class="btn ghost small" data-reopen-copy>Copy message</button>' +
+        '<button class="btn ghost small" data-reopen-close>Close to changes</button></div></div>';
+    }
+    const latest = a.history[0];
+    return (latest ? '<div class="subcard" style="margin-top:14px"><h4 style="margin:0">Changes in the latest update</h4>' + changesHtml(form, latest.application.answers, a.application.answers) + '</div>' : '') +
+      '<div style="margin-top:12px"><button class="btn secondary small" data-reopen title="Let the applicant finish or correct their application, then sign again">↩ Send back to applicant to finish</button></div>';
+  }
+
+  function askReopen(a, dealId) {
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = '<div class="box" style="text-align:left;width:min(560px,100%)"><h3 style="margin-top:0">Send back to ' + esc(a.name) + '</h3>' +
+      '<p class="small muted">They\'ll be able to open their saved answers, change or add anything, upload documents, then sign again and resubmit. You\'ll get an alert when they do. The current version is kept.</p>' +
+      '<label class="lbl" for="reopen-note">What do they need to finish or fix?</label><textarea class="input" id="reopen-note" rows="4" placeholder="e.g. Please add your previous landlord and your employer\'s phone number." style="resize:vertical"></textarea>' +
+      '<div class="nav-row"><button class="btn secondary" data-cancel>Cancel</button><button class="btn" data-ok>Send back</button></div></div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector('textarea').focus();
+    overlay.querySelector('[data-cancel]').onclick = () => overlay.remove();
+    overlay.querySelector('[data-ok]').onclick = async () => {
+      try {
+        await api('/api/apps/' + a.id + '/reopen', { method: 'POST', body: { note: overlay.querySelector('textarea').value } });
+        overlay.remove();
+        toast('Sent back. Now email or text them the link.');
+        renderDeal(dealId);
+      } catch (e) { toast(e.message); }
+    };
   }
 
   function fullApplicationHtml(form, app, revealSsn) {

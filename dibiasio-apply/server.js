@@ -127,6 +127,8 @@ function appSummary(appRecord) {
     id: appRecord.id, formType: appRecord.formType, createdAt: appRecord.createdAt, updatedAt: appRecord.updatedAt,
     name: appRecord.summary.name, email: appRecord.summary.email, phone: appRecord.summary.phone,
     monthlyIncome: appRecord.summary.monthlyIncome, files: appRecord.files.map((f) => ({ ...f, inPackage: inPackage(f) })), credit: appRecord.credit,
+    reopened: appRecord.reopened || null, resubmittedAt: appRecord.resubmittedAt || null, versions: (appRecord.history || []).length + 1,
+    editUrl: PUBLIC_URL + '/apply?u=' + appRecord.uploadToken,
   };
 }
 function dealSummary(deal) {
@@ -248,6 +250,8 @@ app.get('/api/public/status/:token', (req, res) => {
     property: deal ? [deal.sheet.address, deal.sheet.unit && 'Unit ' + deal.sheet.unit].filter(Boolean).join(', ') : '',
     agent: deal && deal.agentId ? auth.publicAgent(auth.get(deal.agentId)) : null,
     creditScreeningUrl: a.credit.status === 'Requested' || a.credit.status === 'Not requested' ? CONFIG.creditScreeningUrl : '',
+    reopened: a.reopened ? { note: a.reopened.note, at: a.reopened.at } : null,
+    editUrl: a.reopened ? PUBLIC_URL + '/apply?u=' + a.uploadToken : '',
   });
 });
 
@@ -264,6 +268,120 @@ app.post('/api/public/status/:token/files', rateLimit(30, 3600e3), upload.any(),
     checkStorage();
   }
   res.json({ ok: true, added: added.length });
+});
+
+/* ------------------- applicant updates a sent-back application ------------------- */
+// The upload link can only read the application back while an agent has sent it
+// back for changes, and even then SSNs and ITINs are masked: the applicant sees
+// "•••-••-6789" and the stored number is kept unless they type a new one.
+const isSecret = (field) => field.type === 'ssn' || field.k === 'itin';
+const maskSecret = (v) => { const d = String(v || '').replace(/\D/g, ''); return d ? '•••-••-' + d.slice(-4) : ''; };
+const isMasked = (v) => String(v || '').includes('•');
+
+function maskAnswers(fields, scope) {
+  const out = { ...scope };
+  fields.forEach((field) => {
+    if (!field.k) return;
+    if (field.type === 'group') out[field.k] = (scope[field.k] || []).map((item) => maskAnswers(field.fields, item || {}));
+    else if (isSecret(field) && scope[field.k]) out[field.k] = maskSecret(scope[field.k]);
+  });
+  return out;
+}
+// Put back the stored numbers behind masked values. Group items may have been
+// reordered or removed, so a masked value is matched to the previous item with
+// the same last four digits (preferring the same name).
+function unmaskAnswers(fields, scope, prev) {
+  fields.forEach((field) => {
+    if (!field.k) return;
+    if (field.type === 'group') {
+      const before = Array.isArray(prev[field.k]) ? prev[field.k] : [];
+      (scope[field.k] || []).forEach((item) => {
+        if (!item) return;
+        field.fields.filter(isSecret).forEach((sf) => {
+          if (!isMasked(item[sf.k])) return;
+          const same = before.filter((b) => b && b[sf.k] && maskSecret(b[sf.k]) === item[sf.k]);
+          const match = same.find((b) => b.fullName && b.fullName === item.fullName) || same[0];
+          item[sf.k] = match ? match[sf.k] : '';
+        });
+      });
+    } else if (isSecret(field) && isMasked(scope[field.k])) {
+      scope[field.k] = maskSecret(prev[field.k]) === scope[field.k] ? prev[field.k] : '';
+    }
+  });
+  return scope;
+}
+
+function openForEdit(req, res) {
+  const a = store.findAppByToken(req.params.token);
+  if (!a) { res.status(404).json({ error: 'Link not found.' }); return null; }
+  if (!a.reopened) { res.status(403).json({ error: 'This application has already been submitted. Contact your agent if something needs to change.' }); return null; }
+  return a;
+}
+
+app.get('/api/public/edit/:token', (req, res) => {
+  const a = openForEdit(req, res);
+  if (!a) return;
+  const deal = store.getDeal(a.dealId);
+  const form = FORMS[a.formType];
+  const application = store.openAnswers(a);
+  const sheet = deal ? deal.sheet : {};
+  res.json({
+    formType: a.formType,
+    note: a.reopened.note || '',
+    answers: maskAnswers(form.steps.flatMap((st) => st.fields), application.answers || {}),
+    files: a.files.filter((x) => x.by === 'applicant').map(({ docType, name, uploadedAt }) => ({ docType, name, uploadedAt })),
+    prefill: dealPrefill(sheet),
+    property: { address: sheet.address || '', unit: sheet.unit || '', city: sheet.city || '', rent: sheet.rent || '', moveIn: sheet.moveIn || '' },
+    agent: deal && deal.agentId ? auth.publicAgent(auth.get(deal.agentId)) : null,
+    statusUrl: PUBLIC_URL + '/status?t=' + a.uploadToken,
+  });
+});
+
+app.post('/api/public/edit/:token', rateLimit(15, 3600e3), upload.any(), (req, res) => {
+  const a = openForEdit(req, res);
+  if (!a) return;
+  let payload;
+  try { payload = JSON.parse(req.body.payload || '{}'); } catch { return res.status(400).json({ error: 'Invalid submission.' }); }
+  const deal = store.getDeal(a.dealId);
+  const form = FORMS[a.formType];
+  const fields = form.steps.flatMap((st) => st.fields);
+  const before = store.openAnswers(a);
+  const answers = unmaskAnswers(fields, payload.answers || {}, before.answers || {});
+  const locked = deal ? dealPrefill(deal.sheet) : {};
+  fields.forEach((fl) => { if (fl.deal && locked[fl.deal]) answers[fl.k] = locked[fl.deal]; });
+
+  const missing = validate(form, answers, locked);
+  const sig = payload.signature || {};
+  if (!sig.typedName || !sig.image) missing.push('Signature');
+  if (!payload.consents || !payload.consents.terms || !payload.consents.credit) missing.push('Consent to the application terms and credit check');
+  if (missing.length) return res.status(400).json({ error: 'Some required information is missing.', missing });
+
+  const now = new Date().toISOString();
+  // Keep every signed version, so the agent can see what changed.
+  a.history = (a.history || []).concat([{ answers: a.answers, summary: a.summary, submittedAt: a.resubmittedAt || a.createdAt, replacedAt: now, note: a.reopened.note || '' }]);
+  a.answers = store.sealAnswers({
+    answers,
+    signature: { typedName: sig.typedName, image: sig.image, signedAt: now, ip: req.ip, userAgent: req.get('user-agent') || '' },
+    otherSigners: (payload.otherSigners || []).filter((x) => x && x.name),
+    consents: { ...payload.consents, at: now },
+  });
+  a.summary = {
+    name: form.applicantName(answers) || sig.typedName,
+    email: form.applicantEmail(answers) || '',
+    phone: form.applicantPhone(answers) || '',
+    monthlyIncome: Math.round(form.income(answers) || 0),
+  };
+  a.resubmittedAt = now;
+  a.reopened = null;
+  const added = attachFiles(a, req.files, 'applicant');
+  store.saveApp(a);
+  if (deal) {
+    log(deal, a.summary.name, 'Updated and re-signed their application' + (added.length ? ' and added ' + added.length + ' document(s)' : ''));
+    store.saveDeal(deal);
+    notify.updatedApplication({ deal, appRecord: a, agent: deal.agentId && auth.get(deal.agentId), form, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch(alertFailed(deal, a.summary.name + ' updated their application'));
+    checkStorage();
+  }
+  res.json({ ok: true, confirmation: a.id.slice(0, 8).toUpperCase(), statusUrl: PUBLIC_URL + '/status?t=' + a.uploadToken });
 });
 
 /* ------------------------------ agent API -------------------------------- */
@@ -363,7 +481,11 @@ app.get('/api/deals/:id', (req, res) => {
   if (!deal) return res.status(404).json({ error: 'Not found.' });
   const out = dealSummary(deal);
   out.activity = deal.activity || [];
-  out.applicants = store.appsForDeal(deal).map((a) => ({ ...appSummary(a), application: store.openAnswers(a), statusUrl: PUBLIC_URL + '/status?t=' + a.uploadToken }));
+  out.applicants = store.appsForDeal(deal).map((a) => ({
+    ...appSummary(a), application: store.openAnswers(a), statusUrl: PUBLIC_URL + '/status?t=' + a.uploadToken,
+    // Earlier signed versions, newest first.
+    history: (a.history || []).map((h) => ({ submittedAt: h.submittedAt, replacedAt: h.replacedAt, note: h.note, application: store.openAnswers(h) })).reverse(),
+  }));
   res.json(out);
 });
 
@@ -417,6 +539,30 @@ app.put('/api/apps/:id/credit', (req, res) => {
   store.saveApp(a);
   const deal = store.getDeal(a.dealId);
   if (deal) { log(deal, req.agent.name, 'Credit report for ' + a.summary.name + ': ' + status); store.saveDeal(deal); }
+  res.json(appSummary(a));
+});
+
+// Send an application back to the applicant to finish or correct.
+app.post('/api/apps/:id/reopen', (req, res) => {
+  const a = store.getApp(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found.' });
+  const note = String(req.body.note || '').trim().slice(0, 2000);
+  a.reopened = { at: new Date().toISOString(), by: req.agent.name, note };
+  store.saveApp(a);
+  const deal = store.getDeal(a.dealId);
+  if (deal) { log(deal, req.agent.name, 'Sent ' + a.summary.name + '\'s application back for changes' + (note ? ': ' + note : '')); store.saveDeal(deal); }
+  res.json(appSummary(a));
+});
+
+app.delete('/api/apps/:id/reopen', (req, res) => {
+  const a = store.getApp(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found.' });
+  if (a.reopened) {
+    a.reopened = null;
+    store.saveApp(a);
+    const deal = store.getDeal(a.dealId);
+    if (deal) { log(deal, req.agent.name, 'Closed ' + a.summary.name + '\'s application to changes'); store.saveDeal(deal); }
+  }
   res.json(appSummary(a));
 });
 

@@ -141,6 +141,13 @@ module.exports = {
     message: where(deal) + ' - ' + appRecord.files.length + ' document(s). Tap to open the dashboard: ' + dashboardUrl,
     url: dashboardUrl,
   }),
+  updatedApplication: ({ deal, appRecord, agent, form, dashboardUrl }) => alert(agent && agent.email, {
+    subject: appRecord.summary.name + ' updated their ' + form.short + ' application',
+    text: appRecord.summary.name + ' made the changes you asked for and re-signed their application (' + where(deal) + ').\n\nOpen it in the dashboard:\n' + dashboardUrl,
+    title: 'Application updated',
+    message: appRecord.summary.name + ' updated their application for ' + where(deal) + '. Tap to open the dashboard: ' + dashboardUrl,
+    url: dashboardUrl,
+  }),
   moreDocuments: ({ deal, appRecord, agent, count, dashboardUrl }) => alert(agent && agent.email, {
     subject: appRecord.summary.name + ' uploaded ' + count + ' more document(s)',
     text: appRecord.summary.name + ' added documents to their application (' + where(deal) + ').\n\n' + dashboardUrl,

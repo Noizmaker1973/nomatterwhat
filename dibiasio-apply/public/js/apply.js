@@ -4,9 +4,11 @@
   const params = new URLSearchParams(location.search);
   const dealToken = params.get('d');
   const agentId = params.get('a');
+  // ?u= opens a submitted application the agent sent back for changes.
+  const editToken = params.get('u');
   const MAX_FILE = 20 * 1024 * 1024;
 
-  let form, deal = null, config = {};
+  let form, deal = null, config = {}, edit = null;
   let stepIndex = 0;
   let steps = [];
   const state = { answers: {}, files: {}, signature: { typedName: '', image: '' }, otherSigners: [], consents: {} };
@@ -25,6 +27,7 @@
   }
   let saveTimer;
   function saveDraft() {
+    if (edit) return; // their submitted answers are already saved on the server
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
@@ -46,7 +49,15 @@
   /* ------------------------------- setup -------------------------------- */
   async function init() {
     config = await fetch('/api/public/config').then((r) => r.json()).catch(() => ({}));
-    if (dealToken) {
+    if (editToken) {
+      const res = await fetch('/api/public/edit/' + encodeURIComponent(editToken));
+      const body = await res.json();
+      if (!res.ok) return fatal(body.error);
+      edit = body;
+      deal = { prefill: body.prefill, property: body.property, agent: body.agent };
+      form = DR.FORMS[body.formType];
+      state.answers = body.answers || {};
+    } else if (dealToken) {
       const res = await fetch('/api/public/deal/' + encodeURIComponent(dealToken));
       const body = await res.json();
       if (!res.ok) return fatal(body.error);
@@ -67,6 +78,7 @@
       { id: 'review', title: 'Review', kind: 'review' },
       { id: 'sign', title: 'Sign & submit', kind: 'sign' },
     ];
+    if (edit) return renderEditWelcome();
     const draft = loadDraft();
     if (draft) {
       state.answers = draft.answers || {};
@@ -120,6 +132,19 @@
     document.getElementById('start').onclick = () => go(0);
   }
 
+  function renderEditWelcome() {
+    $app.innerHTML = propertyBanner() + `
+      <div class="card">
+        <span class="step-label">${esc(form.title)}</span>
+        <h1>Update your application</h1>
+        ${edit.note ? '<div class="notice warn"><b>Your agent asked:</b><br>' + esc(edit.note).replace(/\n/g, '<br>') + '</div>' : '<p>Your agent sent your application back so you can finish or correct it.</p>'}
+        <p class="muted">Your answers are already filled in. Change or add what's needed, upload any missing documents, then sign again and submit.</p>
+        <p class="small muted">For your security, Social Security numbers show only the last 4 digits. Leave them as they are to keep them.</p>
+        <div class="nav-row"><a class="btn secondary" href="${esc(edit.statusUrl)}">Back to my application page</a><button class="btn" id="start">Start updating</button></div>
+      </div>`;
+    document.getElementById('start').onclick = () => go(0);
+  }
+
   function renderResume(draft) {
     $app.innerHTML = propertyBanner() + `
       <div class="card">
@@ -144,7 +169,7 @@
       '<h1>' + esc(step.title) + '</h1>' + (step.intro ? '<p class="muted">' + esc(step.intro) + '</p>' : '') +
       '<div id="body"></div><div class="nav-row">' +
       (i > 0 ? '<button class="btn secondary" id="back">Back</button>' : '<span></span>') +
-      (step.kind === 'sign' ? '<button class="btn" id="next">Submit application</button>' : '<button class="btn" id="next">Continue</button>') +
+      (step.kind === 'sign' ? '<button class="btn" id="next">' + (edit ? 'Submit changes' : 'Submit application') + '</button>' : '<button class="btn" id="next">Continue</button>') +
       '</div></div>';
     const body = document.getElementById('body');
     controller = null;
@@ -165,12 +190,16 @@
   }
 
   /* ----------------------------- documents ------------------------------ */
+  // Documents already on file (when updating a sent-back application).
+  const received = (docType) => (edit ? edit.files.filter((f) => f.docType === docType) : []);
+
   function renderDocuments(body) {
     body.innerHTML = '<p class="muted">Upload a photo or PDF of each item. On a phone, tap <b>Add file</b> to take a picture. Files up to 20 MB each.</p>' +
       form.documents.map((d) => `
       <div class="doc" data-doc="${d.id}">
         <div class="doc-head">
-          <div><b>${esc(d.label)} ${d.req ? '<span class="pill warn">Required</span>' : '<span class="pill">If applicable</span>'}</b>
+          <div><b>${esc(d.label)} ${received(d.id).length ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Required</span>' : '<span class="pill">If applicable</span>'}</b>
+          ${received(d.id).length ? '<span class="small muted">Already have: ' + received(d.id).map((f) => esc(f.name)).join(', ') + '. Add more only if needed.</span>' : ''}
           ${d.help ? '<span class="small muted">' + esc(d.help) + '</span>' : ''}${d.download ? '<br><a class="small" href="' + esc(d.download) + '" target="_blank" download>⬇ Download the blank guarantor form (PDF)</a>' : ''}</div>
           <label class="btn secondary small">Add file<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden"></label>
         </div>
@@ -205,11 +234,11 @@
 
   /* ------------------------------- review ------------------------------- */
   function renderReview(body) {
-    const missingDocs = form.documents.filter((d) => d.req && !(state.files[d.id] || []).length);
+    const missingDocs = form.documents.filter((d) => d.req && !(state.files[d.id] || []).length && !received(d.id).length);
     body.innerHTML = '<p class="muted">Please check your answers. Tap <b>Edit</b> to change anything.</p>' +
       form.steps.map((s, i) => '<div class="review-section"><div class="rs-head"><h3>' + esc(s.title) + '</h3><button class="btn ghost small" data-edit="' + i + '">Edit</button></div>' + summaryHtml(s.fields, state.answers, { skipBlank: true }) + '</div>').join('') +
       '<div class="review-section"><div class="rs-head"><h3>Documents</h3><button class="btn ghost small" data-edit="' + form.steps.length + '">Edit</button></div>' +
-      '<dl class="kv">' + form.documents.map((d) => '<dt>' + esc(d.label) + '</dt><dd>' + ((state.files[d.id] || []).length ? '<span class="pill ok">' + state.files[d.id].length + ' file(s)</span>' : d.req ? '<span class="pill warn">Not uploaded yet</span>' : '<span class="muted">—</span>') + '</dd>').join('') + '</dl>' +
+      '<dl class="kv">' + form.documents.map((d) => '<dt>' + esc(d.label) + '</dt><dd>' + ((state.files[d.id] || []).length ? '<span class="pill ok">' + state.files[d.id].length + ' file(s)</span>' : received(d.id).length ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Not uploaded yet</span>' : '<span class="muted">—</span>') + '</dd>').join('') + '</dl>' +
       (missingDocs.length ? '<div class="notice warn small" style="margin-top:12px">Your application may be delayed until we receive: ' + missingDocs.map((d) => esc(d.label)).join(', ') + '. You can upload them later from your confirmation link.</div>' : '') +
       '</div>';
     body.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => go(Number(b.dataset.edit)));
@@ -307,17 +336,30 @@
     const bar = document.getElementById('overlay-bar');
     overlay.classList.remove('hidden');
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/public/applications');
+    xhr.open('POST', edit ? '/api/public/edit/' + encodeURIComponent(editToken) : '/api/public/applications');
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%'; };
     xhr.onload = () => {
       overlay.classList.add('hidden');
       let body = {};
       try { body = JSON.parse(xhr.responseText); } catch (e) { /* ignore */ }
-      if (xhr.status >= 200 && xhr.status < 300) { clearDraft(); return renderSuccess(body); }
+      if (xhr.status >= 200 && xhr.status < 300) { if (edit) return renderUpdated(body); clearDraft(); return renderSuccess(body); }
       signError(esc(body.error || 'We couldn\'t submit your application. Please try again.') + (body.missing ? '<br><span class="small">' + body.missing.map(esc).join(', ') + '</span>' : ''));
     };
     xhr.onerror = () => { overlay.classList.add('hidden'); signError('Connection problem — please check your internet connection and try again. Your answers are still here.'); };
     xhr.send(fd);
+  }
+
+  function renderUpdated(res) {
+    document.getElementById('saved-note').textContent = '';
+    $app.innerHTML = `
+      <div class="card">
+        <div class="success-icon">✓</div>
+        <h1>Application updated!</h1>
+        <p>Thank you${state.answers.name ? ', ' + esc(state.answers.name.split(' ')[0]) : ''}. Your agent has been notified of your changes.</p>
+        <p class="muted">Confirmation #: <b>${esc(res.confirmation)}</b></p>
+        <p><a class="btn secondary" href="${esc(res.statusUrl)}">Go to my application page</a></p>
+      </div>`;
+    window.scrollTo({ top: 0 });
   }
 
   function renderSuccess(res) {

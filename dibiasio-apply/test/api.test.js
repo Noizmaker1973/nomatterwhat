@@ -207,3 +207,97 @@ test('agents can add and delete notes on an application; others cannot delete th
   cookie = adminCookie;
   assert.deepEqual((await call('/api/deals/' + deal.id + '/notes/' + notes[0].id, { method: 'DELETE' })).body, []);
 });
+
+async function submit(payload) {
+  const fd = new FormData();
+  fd.append('payload', JSON.stringify(payload));
+  return call('/api/public/applications', { method: 'POST', body: fd, auth: false });
+}
+async function resubmit(token, payload, file) {
+  const fd = new FormData();
+  fd.append('payload', JSON.stringify(payload));
+  if (file) fd.append('doc_pay_stubs', new Blob([file], { type: 'application/pdf' }), 'stub.pdf');
+  return call('/api/public/edit/' + token, { method: 'POST', body: fd, auth: false });
+}
+
+test('agent sends an application back; applicant updates and re-signs it', async () => {
+  const deal = (await call('/api/deals', { method: 'POST', json: { formType: 'hamilton' } })).body;
+  const sub = await submit(application({ dealToken: deal.token, answers: { ...application().answers, itin: '912-34-5678' } }));
+  assert.equal(sub.status, 200);
+  const token = new URL(sub.body.statusUrl).searchParams.get('t');
+  let app = (await call('/api/deals/' + deal.id)).body.applicants[0];
+
+  // Not readable until the agent sends it back.
+  assert.equal((await call('/api/public/edit/' + token, { auth: false })).status, 403);
+  assert.equal((await call('/api/apps/' + app.id + '/reopen', { method: 'POST', json: { note: 'Add your previous landlord' }, auth: false })).status, 401);
+
+  const reopened = (await call('/api/apps/' + app.id + '/reopen', { method: 'POST', json: { note: 'Add your previous landlord' } })).body;
+  assert.equal(reopened.reopened.note, 'Add your previous landlord');
+  assert.ok(reopened.editUrl.endsWith('/apply?u=' + token));
+  const status = (await call('/api/public/status/' + token, { auth: false })).body;
+  assert.equal(status.reopened.note, 'Add your previous landlord');
+  assert.ok(status.editUrl);
+
+  const edit = (await call('/api/public/edit/' + token, { auth: false })).body;
+  assert.equal(edit.answers.ssn, '•••-••-6789', 'SSN is masked');
+  assert.equal(edit.answers.itin, '•••-••-5678', 'ITIN is masked');
+  assert.equal(edit.answers.name, 'Jamie Tenant');
+  assert.equal(edit.note, 'Add your previous landlord');
+
+  // Missing signature is rejected and nothing changes.
+  const noSig = await resubmit(token, { answers: edit.answers, consents: { terms: true, credit: true } });
+  assert.equal(noSig.status, 400);
+
+  const updated = await resubmit(token, {
+    answers: { ...edit.answers, prevLandlord: 'Old Landlord LLC', phone: '(617) 555-0199' },
+    signature: { typedName: 'Jamie Tenant', image: 'data:image/png;base64,iVBORw0KGgo=' },
+    consents: { terms: true, credit: true, esign: true },
+  }, Buffer.from('%PDF-1.4 stub'));
+  assert.equal(updated.status, 200, JSON.stringify(updated.body));
+
+  const full = (await call('/api/deals/' + deal.id)).body;
+  app = full.applicants[0];
+  assert.equal(app.reopened, null);
+  assert.ok(app.resubmittedAt);
+  assert.equal(app.versions, 2);
+  assert.equal(app.application.answers.ssn, '123-45-6789', 'stored SSN kept');
+  assert.equal(app.application.answers.itin, '912-34-5678', 'stored ITIN kept');
+  assert.equal(app.application.answers.prevLandlord, 'Old Landlord LLC');
+  assert.equal(app.phone, '(617) 555-0199', 'summary refreshed');
+  assert.equal(app.history.length, 1);
+  assert.equal(app.history[0].application.answers.phone, '(617) 555-0100', 'previous version kept');
+  assert.equal(app.history[0].note, 'Add your previous landlord');
+  assert.equal(app.files.filter((f) => f.docType === 'pay_stubs').length, 1, 'new document added');
+  assert.ok(full.activity.some((x) => /Updated and re-signed/.test(x.text)));
+
+  // Closed again after resubmitting.
+  assert.equal((await call('/api/public/edit/' + token, { auth: false })).status, 403);
+});
+
+test('household SSNs are matched back even when members are reordered; agent can cancel', async () => {
+  const deal = (await call('/api/deals', { method: 'POST', json: { formType: 'beantown' } })).body;
+  const answers = {
+    name: 'Ana Lima', phone: '(617) 555-0100', email: 'ana@example.com', curStreet: '3 Elm', curCity: 'Waltham', curState: 'MA', curZip: '02453',
+    preferredSize: 'Two bedroom', mobileVoucher: 'No', felony: 'No', evicted: 'No', hasPet: 'No',
+    members: [{ fullName: 'Ana Lima', dob: '1990-01-01', ssn: '111-22-3333' }, { fullName: 'Bo Lima', dob: '1991-01-01', ssn: '444-55-6666' }],
+  };
+  const sub = await submit({ dealToken: deal.token, answers, signature: { typedName: 'Ana Lima', image: 'data:image/png;base64,iVBORw0KGgo=' }, consents: { terms: true, credit: true, esign: true } });
+  const token = new URL(sub.body.statusUrl).searchParams.get('t');
+  const app = (await call('/api/deals/' + deal.id)).body.applicants[0];
+
+  // Cancelling closes the link again.
+  await call('/api/apps/' + app.id + '/reopen', { method: 'POST', json: {} });
+  assert.equal((await call('/api/apps/' + app.id + '/reopen', { method: 'DELETE' })).body.reopened, null);
+  assert.equal((await call('/api/public/edit/' + token, { auth: false })).status, 403);
+
+  await call('/api/apps/' + app.id + '/reopen', { method: 'POST', json: {} });
+  const edit = (await call('/api/public/edit/' + token, { auth: false })).body;
+  const [ana, bo] = edit.answers.members;
+  const res = await resubmit(token, {
+    answers: { ...edit.answers, members: [bo, ana, { fullName: 'Cy Lima', dob: '2015-01-01' }] },
+    signature: { typedName: 'Ana Lima', image: 'data:image/png;base64,iVBORw0KGgo=' }, consents: { terms: true, credit: true, esign: true },
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const members = (await call('/api/deals/' + deal.id)).body.applicants[0].application.answers.members;
+  assert.deepEqual(members.map((m) => m.fullName + ':' + (m.ssn || '')), ['Bo Lima:444-55-6666', 'Ana Lima:111-22-3333', 'Cy Lima:']);
+});

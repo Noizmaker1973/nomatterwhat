@@ -19,6 +19,10 @@
         <p class="muted">Submitted ${new Date(data.submittedAt).toLocaleDateString()}${data.property ? ' for ' + esc(data.property) : ''}.</p>
         <p>Status: <span class="pill">${esc(data.status)}</span></p>
       </div>
+      ${data.reopened ? `<div class="card" style="border:2px solid var(--gold)"><h2>Your agent asked you to update your application</h2>
+        ${data.reopened.note ? '<div class="notice warn">' + esc(data.reopened.note).replace(/\n/g, '<br>') + '</div>' : ''}
+        <p class="muted">Your answers are saved. Open your application, make the changes, then sign again and submit.</p>
+        <a class="btn" href="${esc(data.editUrl)}">Update my application</a></div>` : ''}
       ${data.creditScreeningUrl ? `<div class="card"><h2>Credit check</h2><p class="muted">If you haven't yet, complete your credit check so the landlord can review your application.</p><a class="btn" href="${esc(data.creditScreeningUrl)}" target="_blank" rel="noopener">Start credit check</a></div>` : ''}
       <div class="card">
         <h2>Your documents</h2>

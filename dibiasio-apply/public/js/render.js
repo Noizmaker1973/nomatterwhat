@@ -3,6 +3,9 @@
 (function (root) {
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const blank = (v) => v == null || String(v).trim() === '';
+  // A saved SSN shown back as "•••-••-6789" (see /api/public/edit); kept unless retyped.
+  const masked = (v) => String(v || '').includes('•');
+  const ssnOk = (v) => masked(v) || String(v).replace(/\D/g, '').length === 9;
   let uid = 0;
 
   function money(v) {
@@ -120,7 +123,7 @@
           }
         }
         el.innerHTML = '<label class="lbl" id="' + id + '-l" for="' + id + '">' + esc(field.label) + reqMark + '</label>' + control +
-          (lockedVal ? '<div class="help">Filled in by your agent.</div>' : field.help ? '<div class="help">' + esc(field.help) + '</div>' : '') +
+          (lockedVal ? '<div class="help">Filled in by your agent.</div>' : masked(v) ? '<div class="help">Saved and hidden for your security. Leave it to keep it, or tap to type a new one.</div>' : field.help ? '<div class="help">' + esc(field.help) + '</div>' : '') +
           '<div class="err" role="alert"></div>';
         parent.appendChild(el);
 
@@ -134,6 +137,11 @@
             set(input.value);
           });
           if (field.type === 'tel') input.addEventListener('blur', () => { input.value = formatPhone(input.value); set(input.value); });
+          if (masked(v)) {
+            // Clear the hidden number when they start typing; put it back if they leave it empty.
+            input.addEventListener('focus', () => { if (masked(input.value)) { input.value = ''; set(''); } });
+            input.addEventListener('blur', () => { if (!input.value) { input.value = v; set(v); } });
+          }
           const toggle = el.querySelector('[data-toggle]');
           if (toggle) toggle.addEventListener('click', () => {
             const show = input.type === 'password';
@@ -196,7 +204,7 @@
           let msg = '';
           if (field.req && blank(v)) msg = 'This is required.';
           else if (!blank(v) && field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) msg = 'Enter a valid email address.';
-          else if (!blank(v) && field.type === 'ssn' && String(v).replace(/\D/g, '').length !== 9) msg = 'Enter all 9 digits.';
+          else if (!blank(v) && field.type === 'ssn' && !ssnOk(v)) msg = 'Enter all 9 digits.';
           else if (!blank(v) && field.type === 'tel' && String(v).replace(/\D/g, '').length < 10) msg = 'Enter a full phone number.';
           el.classList.toggle('error', !!msg);
           el.querySelector('.err').textContent = msg;
@@ -223,7 +231,7 @@
       const v = scope[field.k];
       if (field.deal && locked && locked[field.deal]) return true;
       if (field.req && blank(v)) return false;
-      if (!blank(v) && field.type === 'ssn' && String(v).replace(/\D/g, '').length !== 9) return false;
+      if (!blank(v) && field.type === 'ssn' && !ssnOk(v)) return false;
       return true;
     });
   }
