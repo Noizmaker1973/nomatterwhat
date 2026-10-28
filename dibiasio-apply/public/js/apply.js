@@ -97,6 +97,13 @@
     return '<ul class="small" style="margin:6px 0 0;padding-left:20px">' + form.documents.map((d) => '<li>' + esc(d.label) + (d.req ? '' : ' <span class="muted">(if applicable)</span>') + '</li>').join('') + '</ul>';
   }
 
+  // Details for the "send the guarantor form" message.
+  const guarantorContext = () => ({
+    applicantName: state.answers.name || '',
+    property: deal && deal.property ? [deal.property.address, deal.property.unit && 'Unit ' + deal.property.unit, deal.property.city].filter(Boolean).join(', ') : '',
+    agent: deal && deal.agent,
+  });
+
   function renderWelcome() {
     $app.innerHTML = propertyBanner() + `
       <div class="card">
@@ -108,7 +115,8 @@
         ${checklist()}
         <p class="small muted" style="margin-top:12px">Takes about ${form.minutes} minutes. You can take a photo of documents with your phone when you get to that step.</p>
         <div class="nav-row"><a class="btn secondary" href="/">Choose a different application</a><button class="btn" id="start">Start application</button></div>
-      </div>`;
+      </div>` + DRGuarantor.html();
+    DRGuarantor.bind($app, guarantorContext);
     document.getElementById('start').onclick = () => go(0);
   }
 
@@ -331,7 +339,8 @@
         <p style="margin-top:12px"><a href="${esc(res.statusUrl)}">Open my upload page</a></p></div>
       <div class="card"><h2>Applying with roommates?</h2>
         <p class="muted">${form.separateAdults ? 'Each adult needs to file their own application. ' : ''}Share this link so co-applicants are added to the same apartment application.</p>
-        <div class="copy-row"><input class="input" readonly value="${esc(res.coApplicantUrl)}" id="co-url"><button class="btn secondary" data-copy="co-url">Copy</button></div></div>`;
+        <div class="copy-row"><input class="input" readonly value="${esc(res.coApplicantUrl)}" id="co-url"><button class="btn secondary" data-copy="co-url">Copy</button></div></div>` + DRGuarantor.html();
+    DRGuarantor.bind($app, guarantorContext);
     $app.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
       const input = document.getElementById(b.dataset.copy);
       input.select();

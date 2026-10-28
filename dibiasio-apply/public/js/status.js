@@ -36,6 +36,8 @@
         <div class="doc"><div class="doc-head"><div><b>Something else</b><span class="small muted">Any other document your agent requested.</span></div>
           <label class="btn secondary small">Upload<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden" data-doc="other"></label></div></div>
       </div>`;
+    $app.insertAdjacentHTML('beforeend', DRGuarantor.html());
+    DRGuarantor.bind($app, { applicantName: data.name, property: data.property, agent: data.agent });
     $app.querySelectorAll('input[type=file]').forEach((input) => input.onchange = () => upload(input));
   }
 

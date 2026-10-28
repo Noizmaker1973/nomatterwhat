@@ -119,6 +119,7 @@ test('full flow: link → application with documents → agent review', async ()
   const status = (await call('/api/public/status/' + token, { auth: false })).body;
   assert.equal(status.files.length, 3);
   assert.ok(!JSON.stringify(status).includes('123-45-6789'), 'status page never exposes answers');
+  assert.equal(status.agent.email, 'james@dibiasiorealty.com', 'status page knows the agent for the guarantor message');
 
   // Agents choose which uploads go into the merged PDF.
   const stubs = a.files.find((f) => f.docType === 'pay_stubs');

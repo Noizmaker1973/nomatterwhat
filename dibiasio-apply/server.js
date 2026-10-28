@@ -246,6 +246,7 @@ app.get('/api/public/status/:token', (req, res) => {
     files: a.files.filter((x) => x.by === 'applicant').map(({ docType, name, uploadedAt }) => ({ docType, name, uploadedAt })),
     status: deal ? deal.status : 'New',
     property: deal ? [deal.sheet.address, deal.sheet.unit && 'Unit ' + deal.sheet.unit].filter(Boolean).join(', ') : '',
+    agent: deal && deal.agentId ? auth.publicAgent(auth.get(deal.agentId)) : null,
     creditScreeningUrl: a.credit.status === 'Requested' || a.credit.status === 'Not requested' ? CONFIG.creditScreeningUrl : '',
   });
 });
