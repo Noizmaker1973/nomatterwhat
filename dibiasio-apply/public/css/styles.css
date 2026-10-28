@@ -176,6 +176,3 @@ footer.foot a { color: var(--muted); }
 .bar i { display: block; height: 100%; width: 0; background: var(--navy); transition: width .2s; }
 .nav-row > span:empty { display: none; }
 .nav-row > span:empty + .btn { margin-left: auto; }
-
-/* Language switch (English | Português) on applications with a translation */
-.lang-switch { display: flex; gap: 6px; justify-content: flex-end; margin: -4px 0 8px; }

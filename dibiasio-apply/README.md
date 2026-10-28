@@ -38,21 +38,6 @@ change a question you edit one file.
 Each agent also has personal links (*Team* page) to post on listings. Anyone who
 applies through them is assigned to that agent automatically.
 
-## Portuguese applications
-
-The Beantown application can be filled out in Portuguese (translated from *Solicitação de Locação*).
-When creating a link, choose **Applicant's language → Português**; the language can be changed later
-on the deal page. Applicants can also switch between English and Português on the first screen, and
-the home page has a *Preencher em português* button. The wizard, documents, certification, success and
-upload pages are all in Portuguese, and the messages agents send that applicant (link, "please upload",
-credit check, guarantor form) are written in Portuguese too.
-
-Answers are saved with English values (Yes/No, "Two bedroom"…), so the dashboard, the landlord's
-original PDF, the merged package and the YGL credit check stay in English. Applications filled out in
-Portuguese are marked on the deal. Translations live in `public/js/i18n.js`; `npm test` fails if any
-applicant-facing text is missing a translation. To offer another form in Portuguese, add
-`languages: ['en', 'pt']` to it in `forms.js` and translate its text in `i18n.js`.
-
 ## Original landlord forms
 
 Each applicant card in the dashboard has a **form (PDF)** button. It prints the applicant's answers,

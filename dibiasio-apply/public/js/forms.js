@@ -19,9 +19,6 @@
   const STATES = ['MA', 'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'Other'];
 
   // Small builders keep the definitions readable.
-  // Labels built from numbers go through the applicant's language (see i18n.js).
-  const I18N = root.DRI18N || (typeof module !== 'undefined' && module.exports ? require('./i18n') : null);
-  const tr = (s, vars) => I18N.t(s, vars);
   const f = (k, label, type = 'text', extra = {}) => Object.assign({ k, label, type }, extra);
   const half = (k, label, type, extra = {}) => f(k, label, type, Object.assign({ w: 'half' }, extra));
   const third = (k, label, type, extra = {}) => f(k, label, type, Object.assign({ w: 'third' }, extra));
@@ -51,7 +48,6 @@
       name: 'Beantown Companies',
       short: 'Beantown',
       title: 'Beantown Companies Rental Application',
-      languages: ['en', 'pt'],
       blurb: 'Use this for apartments managed by Beantown Companies (Waltham & Marlboro). One application covers your whole household.',
       contact: '100 Felton Street, Suite 201, Waltham, MA 02453 · 617-782-7800 | 34 Main Street, Marlboro, MA 01752 · 508-251-0412',
       minutes: 15,
@@ -88,7 +84,7 @@
           fields: [
             {
               k: 'members', type: 'group', min: 1, max: 6, label: 'Household members',
-              itemLabel: (i) => (i === 0 ? tr('Head of household (you)') : tr('Household member {n}', { n: i + 1 })),
+              itemLabel: (i) => (i === 0 ? 'Head of household (you)' : 'Household member ' + (i + 1)),
               addLabel: 'Add another person',
               fields: [
                 f('relationship', 'Relationship to head of household', 'text', { hideFirst: true, placeholder: 'e.g. Spouse, Child, Roommate' }),
@@ -117,7 +113,7 @@
             heading('Character references', 'Required if you can\'t provide landlord references.'),
             {
               k: 'charRefs', type: 'group', min: 0, max: 2, label: 'Character references',
-              itemLabel: (i) => tr('Character reference {n}', { n: i + 1 }), addLabel: 'Add a character reference',
+              itemLabel: (i) => 'Character reference ' + (i + 1), addLabel: 'Add a character reference',
               fields: [
                 half('name', 'Name', 'text', { req: true }),
                 half('phone', 'Phone', 'tel', { req: true }),
@@ -133,7 +129,7 @@
           fields: [
             {
               k: 'employment', type: 'group', min: 0, max: 6, label: 'Employment',
-              itemLabel: (i) => tr('Job {n}', { n: i + 1 }), addLabel: 'Add a job',
+              itemLabel: (i) => 'Job ' + (i + 1), addLabel: 'Add a job',
               fields: [
                 f('member', 'Household member', 'text', { req: true, placeholder: 'Who works here?' }),
                 half('employer', 'Present employer', 'text', { req: true }),
@@ -146,7 +142,7 @@
             heading('Other income', 'Welfare, Social Security, SSI, pension, disability, unemployment, alimony, child support, dividends, rental income, military pay, scholarships, grants, etc.'),
             {
               k: 'otherIncome', type: 'group', min: 0, max: 8, label: 'Other income',
-              itemLabel: (i) => tr('Other income {n}', { n: i + 1 }), addLabel: 'Add other income',
+              itemLabel: (i) => 'Other income ' + (i + 1), addLabel: 'Add other income',
               fields: [
                 third('member', 'Household member', 'text', { req: true }),
                 third('type', 'Type of income', 'text', { req: true }),

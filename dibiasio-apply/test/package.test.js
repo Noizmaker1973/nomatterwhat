@@ -48,3 +48,9 @@ test('a single photo converts to a one-page PDF', async () => {
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
   assert.equal((await PDFDocument.load(pdf)).getPageCount(), 1);
 });
+
+test('PDF text keeps accented letters', () => {
+  const { pdfText } = require('../lib/original');
+  assert.equal(pdfText('João  Conceição\nAraújo'), 'João Conceição Araújo');
+  assert.equal(pdfText('Renée Nuñez Ősz 李'), 'Renée Nuñez Osz', 'other accents are dropped, unsupported letters left out');
+});
