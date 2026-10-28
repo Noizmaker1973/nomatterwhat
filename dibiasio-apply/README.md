@@ -54,7 +54,7 @@ both buttons. Credit reports start unticked. Any photo can also be opened alone 
 
 ## Guarantor form
 
-The blank guarantor form (`public/forms/guarantor-form.pdf`, notarized) is offered on every
+The blank guarantor form (`public/forms/guarantor-form.pdf`) is offered on every
 application as an optional "Guarantor form" upload with a download link. In the dashboard, agents
 can include it when sending an applicant link, or send it on its own from a deal or an applicant
 card. With SMTP the PDF is attached; with Gmail drafts the message carries a link to it.

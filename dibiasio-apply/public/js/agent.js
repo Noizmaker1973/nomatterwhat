@@ -244,7 +244,7 @@
 
   const guarantorUrl = () => location.origin + DR.GUARANTOR_URL;
   const guarantorNote = (uploadUrl) => 'If you need a guarantor, here is the Guarantor Form: ' + guarantorUrl() +
-    ' Your guarantor fills it out and signs it in front of a notary. Then upload it ' + (uploadUrl ? 'here: ' + uploadUrl : 'with your application') + ' or reply with a copy.';
+    ' Your guarantor fills it out and signs it. Then upload it ' + (uploadUrl ? 'here: ' + uploadUrl : 'with your application') + ' or reply with a copy.';
   const guarantorMessage = (name, uploadUrl) => 'Hi' + (name ? ' ' + name : '') + ', ' + guarantorNote(uploadUrl) + ' — ' + me.name;
 
   function renderLinkCreated(deal) {
@@ -319,7 +319,7 @@
           <div class="card"><h3>Applicant link</h3><p class="muted small">Send to co-applicants — everyone who applies with it is added here.</p>
             <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn secondary small" id="cp-link">Copy</button></div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(smsLink(linkMessage(deal)))}">Text</a><button class="btn ghost small" id="em-link">Email</button></div>
-            <h3 style="margin-top:18px">Guarantor form</h3><p class="muted small">Blank form for applicants who need a guarantor. It must be notarized.</p>
+            <h3 style="margin-top:18px">Guarantor form</h3><p class="muted small">Blank form for applicants who need a guarantor.</p>
             <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(DR.GUARANTOR_URL)}" target="_blank">View</a><button class="btn ghost small" id="em-guar">Email form</button><button class="btn ghost small" id="cp-guar">Copy link</button></div>
           </div>
           <div class="card"><h3>Activity</h3><ul class="activity">${(deal.activity || []).map((a) => '<li><time>' + new Date(a.at).toLocaleString() + ' · ' + esc(a.who) + '</time>' + esc(a.text) + '</li>').join('') || '<li class="muted">Nothing yet.</li>'}</ul></div>

@@ -34,9 +34,9 @@
   const MONEY_PERIODS = ['per month', 'per week', 'every 2 weeks', 'per year'];
 
   // Documents that every application asks for in some form.
-  // Blank guarantor form (must be notarized), offered on every application.
+  // Blank guarantor form, offered on every application.
   const GUARANTOR_URL = '/forms/guarantor-form.pdf';
-  const GUARANTOR_STEPS = 'Download the form, have your guarantor fill it out and sign it in front of a notary, then upload it here.';
+  const GUARANTOR_STEPS = 'Download the form, have your guarantor fill it out and sign it, then upload it here.';
   const DOC_GUARANTOR = { id: 'guarantor', label: 'Guarantor form', help: 'Only if you\'re using a guarantor. ' + GUARANTOR_STEPS, download: GUARANTOR_URL };
 
   const DOC_ID = { id: 'photo_id', label: 'Photo ID', help: 'Driver\'s license preferred, or passport / state ID. One for every adult. A clear phone photo is fine.', req: true };

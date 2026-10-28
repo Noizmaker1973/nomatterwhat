@@ -14,7 +14,7 @@
       '',
       'Here is the Guarantor Form: ' + url(),
       '',
-      'Please fill it out, sign it in front of a notary, and send it back to me' +
+      'Please fill it out, sign it, and send it back to me' +
         (agent && agent.email ? ', or straight to my agent, ' + agent.name + ', at ' + agent.email : '') + '.',
       '',
       'Thank you!',
@@ -25,11 +25,11 @@
 
   function html() {
     return '<div class="card" data-guarantor><h2>Need a guarantor or cosigner?</h2>' +
-      '<p class="muted">If someone is guaranteeing your lease, they need to fill out this form and sign it in front of a notary. Download it, or send it straight to them.</p>' +
+      '<p class="muted">If someone is guaranteeing your lease, they need to fill out and sign this form. Download it, or send it straight to them.</p>' +
       '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
       '<a class="btn secondary" href="' + esc(DR.GUARANTOR_URL) + '" target="_blank" download="Guarantor Form.pdf">⬇ Download form (PDF)</a>' +
       '<button type="button" class="btn secondary" data-guarantor-send>✉ Email / share with my guarantor</button></div>' +
-      '<p class="small muted" style="margin:10px 0 0">When it comes back signed and notarized, upload it under <b>Guarantor form</b>.</p></div>';
+      '<p class="small muted" style="margin:10px 0 0">When it comes back signed, upload it under <b>Guarantor form</b>.</p></div>';
   }
 
   // opts: { applicantName, property, agent: { name, email } } — read when clicked, so they can change.
