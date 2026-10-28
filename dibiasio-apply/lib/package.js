@@ -6,7 +6,7 @@
 const sharp = require('sharp');
 const heicConvert = require('heic-convert');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
-const { fillOriginal } = require('./original');
+const { fillOriginal, pdfText } = require('./original');
 
 const LETTER = [612, 792];
 const MARGIN = 36;
@@ -54,7 +54,7 @@ async function addPlaceholder(doc, font, title, lines) {
   lines.forEach((line, i) => page.drawText(line, { x: MARGIN, y: LETTER[1] - 130 - i * 18, size: 11, font, color: rgb(0.3, 0.3, 0.3) }));
 }
 
-const ascii = (s) => String(s || '').replace(/[^\x20-\x7E]/g, '?');
+const ascii = (s) => pdfText(s || '') || '?';
 
 // Converts one stored file into PDF pages appended to `doc`.
 async function addFile(doc, font, meta, buffer, label) {

@@ -125,14 +125,14 @@ function validate(form, answers, locked) {
 function appSummary(appRecord) {
   return {
     id: appRecord.id, formType: appRecord.formType, createdAt: appRecord.createdAt, updatedAt: appRecord.updatedAt,
-    name: appRecord.summary.name, email: appRecord.summary.email, phone: appRecord.summary.phone,
+    name: appRecord.summary.name, email: appRecord.summary.email, phone: appRecord.summary.phone, lang: appRecord.lang || 'en',
     monthlyIncome: appRecord.summary.monthlyIncome, files: appRecord.files.map((f) => ({ ...f, inPackage: inPackage(f) })), credit: appRecord.credit,
   };
 }
 function dealSummary(deal) {
   const agent = deal.agentId && auth.get(deal.agentId);
   return {
-    id: deal.id, token: deal.token, formType: deal.formType, status: deal.status, sheet: deal.sheet,
+    id: deal.id, token: deal.token, formType: deal.formType, lang: deal.lang || 'en', status: deal.status, sheet: deal.sheet,
     agentId: deal.agentId, agentName: agent ? agent.name : 'Unassigned',
     createdAt: deal.createdAt, updatedAt: deal.updatedAt,
     applicants: store.appsForDeal(deal).map(appSummary),
@@ -140,9 +140,13 @@ function dealSummary(deal) {
     notes: deal.notes || [],
   };
 }
-function newDeal(formType, agentId, sheet) {
+// Languages an applicant can fill a form out in (see public/js/i18n.js).
+const langFor = (form, lang) => ((form.languages || ['en']).includes(lang) ? lang : 'en');
+const LANG_NAMES = { en: 'English', pt: 'Portuguese' };
+
+function newDeal(formType, agentId, sheet, lang) {
   return {
-    id: store.id(), token: store.id(12), formType, agentId: agentId || null, status: 'New',
+    id: store.id(), token: store.id(12), formType, lang: lang || 'en', agentId: agentId || null, status: 'New',
     sheet: sheet || {}, appIds: [], activity: [], createdAt: new Date().toISOString(),
   };
 }
@@ -156,6 +160,7 @@ app.get('/api/public/deal/:token', (req, res) => {
   const agent = deal.agentId && auth.get(deal.agentId);
   res.json({
     formType: deal.formType,
+    lang: deal.lang || 'en',
     prefill: dealPrefill(deal.sheet),
     property: { address: deal.sheet.address || '', unit: deal.sheet.unit || '', city: deal.sheet.city || '', rent: deal.sheet.rent || '', moveIn: deal.sheet.moveIn || '' },
     agent: auth.publicAgent(agent),
@@ -193,14 +198,15 @@ async function submitApplication(req, res) {
   if (!payload.consents || !payload.consents.terms || !payload.consents.credit) missing.push('Consent to the application terms and credit check');
   if (missing.length) return res.status(400).json({ error: 'Some required information is missing.', missing });
 
+  const lang = langFor(form, payload.lang);
   if (!deal) {
     const agentId = payload.agentId && auth.get(payload.agentId) ? payload.agentId : null;
-    deal = newDeal(formType, agentId, {});
+    deal = newDeal(formType, agentId, {}, lang);
   }
 
   const now = new Date().toISOString();
   const appRecord = {
-    id: store.id(), dealId: deal.id, formType, uploadToken: store.id(18), createdAt: now,
+    id: store.id(), dealId: deal.id, formType, lang, uploadToken: store.id(18), createdAt: now,
     summary: {
       name: form.applicantName(answers) || sig.typedName,
       email: form.applicantEmail(answers) || '',
@@ -211,7 +217,7 @@ async function submitApplication(req, res) {
       answers,
       signature: { typedName: sig.typedName, image: sig.image, signedAt: now, ip: req.ip, userAgent: req.get('user-agent') || '' },
       otherSigners: (payload.otherSigners || []).filter((s) => s && s.name),
-      consents: { ...payload.consents, at: now },
+      consents: { ...payload.consents, lang, at: now },
     }),
     files: [],
     credit: { status: 'Not requested' },
@@ -221,7 +227,7 @@ async function submitApplication(req, res) {
 
   deal.appIds.push(appRecord.id);
   if (!deal.sheet.address && answers.aptAddress) deal.sheet.address = answers.aptAddress;
-  log(deal, appRecord.summary.name, 'Submitted application with ' + appRecord.files.length + ' document(s)');
+  log(deal, appRecord.summary.name, 'Submitted application' + (lang !== 'en' ? ' in ' + LANG_NAMES[lang] : '') + ' with ' + appRecord.files.length + ' document(s)');
   store.saveDeal(deal);
 
   notify.newApplication({ deal, appRecord, agent: deal.agentId && auth.get(deal.agentId), form, dashboardUrl: PUBLIC_URL + '/agent#deal/' + deal.id }).catch(alertFailed(deal, 'New application from ' + appRecord.summary.name));
@@ -231,7 +237,7 @@ async function submitApplication(req, res) {
     ok: true,
     confirmation: appRecord.id.slice(0, 8).toUpperCase(),
     statusUrl: PUBLIC_URL + '/status?t=' + appRecord.uploadToken,
-    coApplicantUrl: PUBLIC_URL + '/apply?d=' + deal.token,
+    coApplicantUrl: PUBLIC_URL + '/apply?d=' + deal.token + (lang !== (deal.lang || 'en') ? '&lang=' + lang : ''),
     creditScreeningUrl: CONFIG.creditScreeningUrl,
   });
 }
@@ -242,7 +248,7 @@ app.get('/api/public/status/:token', (req, res) => {
   if (!a) return res.status(404).json({ error: 'Link not found.' });
   const deal = store.getDeal(a.dealId);
   res.json({
-    name: a.summary.name, formType: a.formType, submittedAt: a.createdAt,
+    name: a.summary.name, formType: a.formType, lang: a.lang || 'en', submittedAt: a.createdAt,
     files: a.files.filter((x) => x.by === 'applicant').map(({ docType, name, uploadedAt }) => ({ docType, name, uploadedAt })),
     status: deal ? deal.status : 'New',
     property: deal ? [deal.sheet.address, deal.sheet.unit && 'Unit ' + deal.sheet.unit].filter(Boolean).join(', ') : '',
@@ -352,8 +358,8 @@ app.get('/api/deals', (req, res) => {
 app.post('/api/deals', (req, res) => {
   const form = FORMS[req.body.formType];
   if (!form) return res.status(400).json({ error: 'Choose an application type.' });
-  const deal = newDeal(form.id, req.body.agentId || req.agent.id, req.body.sheet || {});
-  log(deal, req.agent.name, 'Created applicant link');
+  const deal = newDeal(form.id, req.body.agentId || req.agent.id, req.body.sheet || {}, langFor(form, req.body.lang));
+  log(deal, req.agent.name, 'Created applicant link' + (deal.lang !== 'en' ? ' (' + LANG_NAMES[deal.lang] + ')' : ''));
   store.saveDeal(deal);
   res.json(dealSummary(deal));
 });
@@ -370,7 +376,8 @@ app.get('/api/deals/:id', (req, res) => {
 app.put('/api/deals/:id', (req, res) => {
   const deal = store.getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'Not found.' });
-  const { sheet, status, agentId } = req.body;
+  const { sheet, status, agentId, lang } = req.body;
+  if (lang && langFor(FORMS[deal.formType], lang) === lang && lang !== (deal.lang || 'en')) { deal.lang = lang; log(deal, req.agent.name, 'Applicant link language: ' + LANG_NAMES[lang]); }
   if (sheet && typeof sheet === 'object') deal.sheet = sheet;
   if (status && STATUSES.includes(status) && status !== deal.status) { log(deal, req.agent.name, 'Status: ' + deal.status + ' → ' + status); deal.status = status; }
   if (agentId !== undefined && agentId !== deal.agentId) { deal.agentId = agentId || null; log(deal, req.agent.name, 'Assigned to ' + ((agentId && auth.get(agentId) || {}).name || 'nobody')); }

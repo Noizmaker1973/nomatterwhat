@@ -9,6 +9,7 @@
       <div class="meta">About ${form.minutes} minutes${form.separateAdults ? ' · one per adult' : ' · whole household'}</div>
       <p>${esc(form.blurb)}</p>
       <a class="btn block" href="/apply?f=${form.id}${agentId ? '&a=' + encodeURIComponent(agentId) : ''}">Start ${esc(form.short)} application</a>
+      ${(form.languages || []).includes('pt') ? `<a class="btn secondary block" style="margin-top:8px" lang="pt-BR" href="/apply?f=${form.id}&lang=pt${agentId ? '&a=' + encodeURIComponent(agentId) : ''}">Preencher em português</a>` : ''}
     </div>`).join('');
 
   if (agentId) {

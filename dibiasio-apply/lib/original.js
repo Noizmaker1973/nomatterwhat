@@ -280,6 +280,15 @@ function standard({ a, sig, sheet, app }) {
 const MAPS = { beantown, hamilton, standard };
 
 /* ------------------------------- drawing ------------------------------- */
+// The built-in Helvetica only has Western European letters (WinAnsi), so keep
+// accents like ã, ç, é; other accented letters lose the accent (ő → o) and
+// anything else is left out.
+const WIN_ANSI_EXTRA = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+function pdfText(v) {
+  return String(v == null ? '' : v).replace(/\s+/g, ' ').replace(/[^\x20-\x7E\xA0-\xFF]/g, (c) => (WIN_ANSI_EXTRA.includes(c) ? c
+    : c.normalize('NFD').replace(/[^\x20-\x7E\xA0-\xFF]/g, ''))).replace(/ {2,}/g, ' ').trim();
+}
+
 async function fillOriginal({ formType, app, application, sheet, agent }) {
   const map = MAPS[formType];
   if (!map) throw new Error('No original form for ' + formType);
@@ -308,10 +317,10 @@ async function fillOriginal({ formType, app, application, sheet, agent }) {
         const scale = Math.min(op.w / sigImage.width, op.h / sigImage.height);
         page.drawImage(sigImage, { x: op.x, y: H - op.y - op.h, width: sigImage.width * scale, height: sigImage.height * scale });
       } else if (sig.typedName) {
-        page.drawText('/s/ ' + sig.typedName, { x: op.x, y: H - op.y - op.h + 4, size: 10, font, color: INK });
+        page.drawText('/s/ ' + pdfText(sig.typedName), { x: op.x, y: H - op.y - op.h + 4, size: 10, font, color: INK });
       }
     } else {
-      let text = String(op.t == null ? '' : op.t).replace(/\s+/g, ' ').replace(/[^\x20-\x7E]/g, '').trim();
+      let text = pdfText(op.t);
       if (!text) continue;
       let size = op.size || 9;
       const max = op.w || 200;
@@ -324,4 +333,4 @@ async function fillOriginal({ formType, app, application, sheet, agent }) {
   return Buffer.from(await doc.save());
 }
 
-module.exports = { fillOriginal };
+module.exports = { fillOriginal, pdfText };

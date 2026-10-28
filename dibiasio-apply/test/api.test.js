@@ -207,3 +207,41 @@ test('agents can add and delete notes on an application; others cannot delete th
   cookie = adminCookie;
   assert.deepEqual((await call('/api/deals/' + deal.id + '/notes/' + notes[0].id, { method: 'DELETE' })).body, []);
 });
+
+test('Portuguese links: language is stored on the deal and the application', async () => {
+  const deal = (await call('/api/deals', { method: 'POST', json: { formType: 'beantown', lang: 'pt', sheet: { address: '5 Oak St', city: 'Waltham' } } })).body;
+  assert.equal(deal.lang, 'pt');
+  assert.equal((await call('/api/public/deal/' + deal.token, { auth: false })).body.lang, 'pt');
+  // Forms without a translation stay in English.
+  assert.equal((await call('/api/deals', { method: 'POST', json: { formType: 'hamilton', lang: 'pt' } })).body.lang, 'en');
+
+  const fd = new FormData();
+  fd.append('payload', JSON.stringify({
+    dealToken: deal.token, lang: 'pt',
+    answers: {
+      name: 'João Conceição', phone: '(617) 555-0100', email: 'joao@example.com', curStreet: '12 Rua Sete', curCity: 'Framingham', curState: 'MA', curZip: '01702',
+      preferredSize: 'Two bedroom', mobileVoucher: 'No', members: [{ fullName: 'João Conceição', dob: '1990-01-01', ssn: '123-45-6789' }],
+      felony: 'No', evicted: 'No', hasPet: 'No',
+    },
+    signature: { typedName: 'João Conceição', image: 'data:image/png;base64,iVBORw0KGgo=' },
+    consents: { terms: true, credit: true, esign: true },
+  }));
+  const sub = await call('/api/public/applications', { method: 'POST', body: fd, auth: false });
+  assert.equal(sub.status, 200, JSON.stringify(sub.body));
+  assert.ok(!sub.body.coApplicantUrl.includes('lang='), 'roommates inherit the deal language');
+
+  const full = (await call('/api/deals/' + deal.id)).body;
+  assert.equal(full.applicants[0].lang, 'pt');
+  assert.equal(full.applicants[0].application.consents.lang, 'pt', 'records which certification text was signed');
+  assert.ok(full.activity.some((x) => /in Portuguese/.test(x.text)));
+  const token = new URL(sub.body.statusUrl).searchParams.get('t');
+  assert.equal((await call('/api/public/status/' + token, { auth: false })).body.lang, 'pt');
+
+  const pdf = await call('/api/apps/' + full.applicants[0].id + '/original.pdf');
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.body.subarray(0, 4).toString(), '%PDF');
+
+  // Agents can switch the link's language later; unknown languages are ignored.
+  assert.equal((await call('/api/deals/' + deal.id, { method: 'PUT', json: { lang: 'en' } })).body.lang, 'en');
+  assert.equal((await call('/api/deals/' + deal.id, { method: 'PUT', json: { lang: 'xx' } })).body.lang, 'en');
+});

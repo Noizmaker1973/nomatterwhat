@@ -38,8 +38,11 @@
   const propertyLine = (sheet) => [sheet.address, sheet.unit && 'Unit ' + sheet.unit, sheet.city].filter(Boolean).join(', ');
   const missingDocs = (form, applicant) => form.documents.filter((d) => d.req && !applicant.files.some((f) => f.docType === d.id));
   const firstName = (a) => (a.name || '').split(' ')[0];
-  const creditMsg = (a) => 'Hi ' + firstName(a) + ', the landlord needs a credit report for your application. Please complete it here: ' + config.creditScreeningUrl + ' — ' + me.name;
-  const docsMsg = (form, a) => 'Hi ' + firstName(a) + ', to finish your application please upload: ' + missingDocs(form, a).map((d) => d.label).join(', ') + '. Use your private link: ' + a.statusUrl + ' — ' + me.name;
+  // Messages to applicants are written in the language they applied in.
+  const tIn = DRI18N.tIn;
+  const LANG_LABEL = { pt: 'Portuguese' };
+  const creditMsg = (a) => tIn(a.lang, 'Hi {name}, the landlord needs a credit report for your application. Please complete it here: {url}', { name: firstName(a), url: config.creditScreeningUrl }) + ' — ' + me.name;
+  const docsMsg = (form, a) => tIn(a.lang, 'Hi {name}, to finish your application please upload: {docs}. Use your private link: {url}', { name: firstName(a), docs: missingDocs(form, a).map((d) => tIn(a.lang, d.label)).join(', '), url: a.statusUrl }) + ' — ' + me.name;
   const smsLink = (text) => 'sms:?&body=' + encodeURIComponent(text);
   const mailLink = (subject, text, to) => 'mailto:' + encodeURIComponent(to || '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(text);
 
@@ -224,35 +227,48 @@
       <p class="muted">Pick the application, add what you know about the apartment, and send the link. Anything you fill in is shown to the applicant and pre-filled on their application. You can complete the full deal sheet later.</p>
       <h3>Which application?</h3>
       <div class="form-pick">${Object.values(FORMS).map((f, i) => '<label><input type="radio" name="ft" value="' + f.id + '"' + (i === 0 ? ' checked' : '') + '><b>' + esc(f.title) + '</b><br><span class="small muted">' + esc(f.blurb) + '</span></label>').join('')}</div>
+      <div id="lang-pick"></div>
       <h3>Apartment</h3>
       <div id="sheet"></div>
       <div class="nav-row"><a class="btn secondary" href="#">Cancel</a><button class="btn" id="create">Create link</button></div>
     </div>`;
     renderFields(document.getElementById('sheet'), quick, sheet);
+    // Language choice, for applications that have a translation.
+    const langPick = () => {
+      const langs = FORMS[document.querySelector('input[name=ft]:checked').value].languages || ['en'];
+      document.getElementById('lang-pick').innerHTML = langs.length < 2 ? '' : '<h3>Applicant\'s language</h3><div class="options">' +
+        langs.map((l, i) => '<label><input type="radio" name="lang" value="' + l + '"' + (i === 0 ? ' checked' : '') + '>' + esc(DRI18N.LANGS[l]) + '</label>').join('') +
+        '</div><p class="small muted">The applicant fills it out in this language and can switch. You still see everything in English.</p>';
+    };
+    document.querySelectorAll('input[name=ft]').forEach((r) => r.onchange = langPick);
+    langPick();
     document.getElementById('create').onclick = async () => {
       const formType = document.querySelector('input[name=ft]:checked').value;
+      const langInput = document.querySelector('input[name=lang]:checked');
       if (!sheet.firstMonth && sheet.rent) sheet.firstMonth = sheet.rent;
-      const deal = await api('/api/deals', { method: 'POST', body: { formType, sheet } });
+      const deal = await api('/api/deals', { method: 'POST', body: { formType, sheet, lang: langInput ? langInput.value : 'en' } });
       renderLinkCreated(deal);
     };
   }
 
   function linkMessage(deal, extra) {
     const where = propertyLine(deal.sheet);
-    return 'Hi! Here is your rental application' + (where ? ' for ' + where : '') + ' with Dibiasio Realty. Fill it out, sign, and upload your ID and pay stubs here: ' + deal.link + (extra ? '\n\n' + extra : '') + ' — ' + me.name;
+    return tIn(deal.lang, where ? 'Hi! Here is your rental application for {where} with Dibiasio Realty. Fill it out, sign, and upload your ID and pay stubs here: {link}'
+      : 'Hi! Here is your rental application with Dibiasio Realty. Fill it out, sign, and upload your ID and pay stubs here: {link}', { where, link: deal.link }) + (extra ? '\n\n' + extra : '') + ' — ' + me.name;
   }
 
   const guarantorUrl = () => location.origin + DR.GUARANTOR_URL;
-  const guarantorNote = (uploadUrl) => 'If you need a guarantor, here is the Guarantor Form: ' + guarantorUrl() +
-    ' Your guarantor fills it out and signs it. Then upload it ' + (uploadUrl ? 'here: ' + uploadUrl : 'with your application') + ' or reply with a copy.';
-  const guarantorMessage = (name, uploadUrl) => 'Hi' + (name ? ' ' + name : '') + ', ' + guarantorNote(uploadUrl) + ' — ' + me.name;
+  const guarantorNote = (lang, uploadUrl) => tIn(lang, uploadUrl
+    ? 'If you need a guarantor, here is the Guarantor Form: {url} Your guarantor fills it out and signs it. Then upload it here: {upload} or reply with a copy.'
+    : 'If you need a guarantor, here is the Guarantor Form: {url} Your guarantor fills it out and signs it. Then upload it with your application or reply with a copy.', { url: guarantorUrl(), upload: uploadUrl });
+  const guarantorMessage = (lang, name, uploadUrl) => tIn(lang, name ? 'Hi {name}, {text}' : 'Hi, {text}', { name, text: guarantorNote(lang, uploadUrl) }) + ' — ' + me.name;
 
   function renderLinkCreated(deal) {
     let msg = linkMessage(deal);
     $app.innerHTML = `<div class="card" style="max-width:720px;margin:0 auto">
       <div class="success-icon">✓</div>
       <h1>Link ready</h1>
-      <p class="muted">${esc(FORMS[deal.formType].title)}${propertyLine(deal.sheet) ? ' · ' + esc(propertyLine(deal.sheet)) : ''}. Every applicant who uses this link is added to the same deal.</p>
+      <p class="muted">${esc(FORMS[deal.formType].title)}${LANG_LABEL[deal.lang] ? ' in ' + LANG_LABEL[deal.lang] : ''}${propertyLine(deal.sheet) ? ' · ' + esc(propertyLine(deal.sheet)) : ''}. Every applicant who uses this link is added to the same deal.</p>
       <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn" id="cp">Copy link</button></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         <a class="btn secondary" id="sms" href="${esc(smsLink(msg))}">Text it</a>
@@ -264,12 +280,12 @@
       </div>`;
     const withGuarantor = document.getElementById('with-guarantor');
     withGuarantor.onchange = () => {
-      msg = linkMessage(deal, withGuarantor.checked ? guarantorNote() : '');
+      msg = linkMessage(deal, withGuarantor.checked ? guarantorNote(deal.lang) : '');
       document.getElementById('sms').href = smsLink(msg);
     };
     document.getElementById('cp').onclick = () => copy(deal.link);
     document.getElementById('cpm').onclick = () => copy(msg, 'Message');
-    document.getElementById('em').onclick = () => emailCompose({ subject: 'Your rental application', text: msg, dealId: deal.id, attachGuarantor: withGuarantor.checked });
+    document.getElementById('em').onclick = () => emailCompose({ subject: tIn(deal.lang, 'Your rental application'), text: msg, dealId: deal.id, attachGuarantor: withGuarantor.checked });
   }
 
   /* -------------------------------- deal -------------------------------- */
@@ -286,7 +302,7 @@
     $app.innerHTML = `
       <div class="page-head">
         <div><a href="#" class="small">← All applications</a><h1>${esc(propertyLine(sheet) || 'New deal')}</h1>
-          <span class="muted small">${esc(form.title)} · created ${new Date(deal.createdAt).toLocaleDateString()}</span></div>
+          <span class="muted small">${esc(form.title)}${LANG_LABEL[deal.lang] ? ' · <b>' + LANG_LABEL[deal.lang] + ' link</b>' : ''} · created ${new Date(deal.createdAt).toLocaleDateString()}</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <select class="input" id="status" style="width:auto">${STATUSES.map((s) => '<option' + (s === deal.status ? ' selected' : '') + '>' + esc(s) + '</option>').join('')}</select>
           <select class="input" id="assign" style="width:auto"><option value="">Unassigned</option>${agents.map((a) => '<option value="' + a.id + '"' + (a.id === deal.agentId ? ' selected' : '') + '>' + esc(a.name) + '</option>').join('')}</select>
@@ -317,6 +333,7 @@
             <ul class="activity" id="notes" style="margin-top:10px"></ul>
           </div>
           <div class="card"><h3>Applicant link</h3><p class="muted small">Send to co-applicants — everyone who applies with it is added here.</p>
+            ${(form.languages || []).length > 1 ? '<div class="inline-form" style="margin-bottom:8px"><label class="small" for="deal-lang">Applicant\'s language</label><select class="input" id="deal-lang" style="width:auto">' + form.languages.map((l) => '<option value="' + l + '"' + (l === deal.lang ? ' selected' : '') + '>' + esc(DRI18N.LANGS[l]) + '</option>').join('') + '</select></div>' : ''}
             <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn secondary small" id="cp-link">Copy</button></div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(smsLink(linkMessage(deal)))}">Text</a><button class="btn ghost small" id="em-link">Email</button></div>
             <h3 style="margin-top:18px">Guarantor form</h3><p class="muted small">Blank form for applicants who need a guarantor.</p>
@@ -342,8 +359,10 @@
     document.getElementById('status').onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { status: e.target.value } }); toast('Status updated'); renderDeal(id); };
     document.getElementById('assign').onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { agentId: e.target.value } }); toast('Agent updated'); renderDeal(id); };
     document.getElementById('cp-link').onclick = () => copy(deal.link);
-    document.getElementById('em-link').onclick = () => emailCompose({ subject: 'Your rental application', text: linkMessage(deal), dealId: deal.id });
-    document.getElementById('em-guar').onclick = () => emailCompose({ subject: 'Guarantor form for your rental application', text: guarantorMessage('', deal.link), dealId: deal.id, attachGuarantor: true });
+    document.getElementById('em-link').onclick = () => emailCompose({ subject: tIn(deal.lang, 'Your rental application'), text: linkMessage(deal), dealId: deal.id });
+    document.getElementById('em-guar').onclick = () => emailCompose({ subject: tIn(deal.lang, 'Guarantor form for your rental application'), text: guarantorMessage(deal.lang, '', deal.link), dealId: deal.id, attachGuarantor: true });
+    const dealLang = document.getElementById('deal-lang');
+    if (dealLang) dealLang.onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { lang: e.target.value } }); toast('Link language: ' + DRI18N.LANGS[e.target.value]); renderDeal(id); };
     document.getElementById('cp-guar').onclick = () => copy(guarantorUrl(), 'Guarantor form link');
     const del = document.getElementById('del');
     if (del) del.onclick = async () => {
@@ -391,7 +410,7 @@
         <div class="applicant-head">
           <div><span class="step-label">Applicant ${i + 1}</span><h2 style="margin:0">${esc(a.name)}</h2>
             <span class="small">${a.email ? '<a href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : ''}${a.phone ? ' · <a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : ''}</span><br>
-            <span class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()} · income ${a.monthlyIncome ? money(a.monthlyIncome) + '/mo' : 'not stated'}</span></div>
+            <span class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()}${LANG_LABEL[a.lang] ? ' in <b>' + LANG_LABEL[a.lang] + '</b>' : ''} · income ${a.monthlyIncome ? money(a.monthlyIncome) + '/mo' : 'not stated'}</span></div>
           <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">${missing.length ? '<span class="pill warn">' + missing.length + ' doc(s) missing</span>' : '<span class="pill ok">Docs complete</span>'}
             <a class="btn secondary small" href="/api/apps/${a.id}/original.pdf" target="_blank" title="The applicant's answers printed on ${esc(form.name)}'s original form">📄 ${esc(form.short)} form (PDF)</a>
             <a class="btn small" href="/api/apps/${a.id}/package.pdf" target="_blank" title="${esc(form.short)} form followed by the applicant's ID, pay stubs and other documents, merged into one PDF">📎 Form + documents (PDF)</a></div>
@@ -444,7 +463,7 @@
       const rd = q('[data-req-docs]');
       if (rd) rd.onclick = () => copy(docsMsg(form, a), 'Message');
       const ed = q('[data-email-docs]');
-      if (ed) ed.onclick = () => emailCompose({ to: a.email, subject: 'Documents needed for your rental application', text: docsMsg(form, a), dealId: deal.id });
+      if (ed) ed.onclick = () => emailCompose({ to: a.email, subject: tIn(a.lang, 'Documents needed for your rental application'), text: docsMsg(form, a), dealId: deal.id });
       const pkgCount = () => { q('[data-pkg-count]').textContent = a.files.filter((f) => f.inPackage).length + ' of ' + a.files.length + ' included'; };
       pkgCount();
       card.querySelectorAll('[data-pkg]').forEach((box) => box.onchange = async () => {
@@ -457,9 +476,9 @@
         } catch (e) { box.checked = !box.checked; toast(e.message); }
       });
       const eg = q('[data-email-guar]');
-      if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: 'Guarantor form for your rental application', text: guarantorMessage(firstName(a), a.statusUrl), dealId: deal.id, attachGuarantor: true });
+      if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: tIn(a.lang, 'Guarantor form for your rental application'), text: guarantorMessage(a.lang, firstName(a), a.statusUrl), dealId: deal.id, attachGuarantor: true });
       const ea = q('[data-email-app]');
-      if (ea) ea.onclick = () => emailCompose({ to: a.email, subject: 'Your rental application' + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: 'Hi ' + firstName(a) + ',\n\n\n\n' + me.name + '\nDibiasio Realty' + (me.phone ? '\n' + me.phone : ''), dealId: deal.id });
+      if (ea) ea.onclick = () => emailCompose({ to: a.email, subject: tIn(a.lang, 'Your rental application') + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: tIn(a.lang, 'Hi {name},', { name: firstName(a) }) + '\n\n\n\n' + me.name + '\nDibiasio Realty' + (me.phone ? '\n' + me.phone : ''), dealId: deal.id });
       q('[data-ygl]').onclick = () => DRYGL.open({
         formId: form.id, answers: a.application.answers, applicantName: a.name, copy, toast,
         onCopied: async () => {
@@ -520,7 +539,7 @@
         <p class="muted small" style="margin:0">Then on an application, click <b>Credit check (YGL)</b> → <b>Copy &amp; open YGL</b>. On YGL's credit report page, click the <b>Fill from Dibiasio</b> bookmark, review the filled fields, and submit.</p>
       </div>
       <div class="card"><h2>Your apply links</h2><p class="muted small">Post these on listings or send them to anyone. Applications come straight to you.</p>
-        ${Object.values(FORMS).map((f) => { const url = location.origin + '/apply?f=' + f.id + '&a=' + me.id; return '<div class="copy-row" style="margin-bottom:8px"><input class="input" readonly value="' + esc(url) + '"><button class="btn secondary small" data-copy="' + esc(url) + '">Copy ' + esc(f.short) + '</button></div>'; }).join('')}
+        ${Object.values(FORMS).flatMap((f) => (f.languages || ['en']).map((l) => { const url = location.origin + '/apply?f=' + f.id + '&a=' + me.id + (l === 'en' ? '' : '&lang=' + l); return '<div class="copy-row" style="margin-bottom:8px"><input class="input" readonly value="' + esc(url) + '"><button class="btn secondary small" data-copy="' + esc(url) + '">Copy ' + esc(f.short) + (l === 'en' ? '' : ' (' + esc(DRI18N.LANGS[l]) + ')') + '</button></div>'; })).join('')}
         <div class="copy-row"><input class="input" readonly value="${esc(location.origin + '/?a=' + me.id)}"><button class="btn secondary small" data-copy="${esc(location.origin + '/?a=' + me.id)}">Copy chooser</button></div>
       </div>
       <div class="card"><h2>Alerts</h2><p class="muted small">New applications and document uploads send you an alert. Use this to check it's working.</p>

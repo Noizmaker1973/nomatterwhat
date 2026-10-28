@@ -3,6 +3,9 @@
 (function (root) {
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const blank = (v) => v == null || String(v).trim() === '';
+  const t = (s, vars) => DRI18N.t(s, vars);
+  // Choice answers are stored in English; only their display is translated.
+  const CHOICE = { select: 1, radio: 1, yesno: 1 };
   let uid = 0;
 
   function money(v) {
@@ -24,6 +27,7 @@
     if (field.type === 'money') return money(v);
     if (field.type === 'date') return date(v);
     if (field.type === 'ssn' && !opts.revealSsn) return maskSsn(v);
+    if (CHOICE[field.type] || (field.type === 'state' && v === 'Other')) return t(String(v));
     return String(v);
   }
   function formatSsn(v) {
@@ -64,14 +68,14 @@
         if (field.type === 'heading') {
           const h = document.createElement('div');
           h.className = 'section-head';
-          h.innerHTML = '<h3>' + esc(field.label) + '</h3>' + (field.help ? '<p>' + esc(field.help) + '</p>' : '');
+          h.innerHTML = '<h3>' + esc(t(field.label)) + '</h3>' + (field.help ? '<p>' + esc(t(field.help)) + '</p>' : '');
           parent.appendChild(h);
           return;
         }
         if (field.type === 'note') {
           const n = document.createElement('div');
           n.className = 'fld notice';
-          n.textContent = field.label;
+          n.textContent = t(field.label);
           parent.appendChild(n);
           return;
         }
@@ -85,7 +89,7 @@
         if (lockedVal) sc[field.k] = lockedVal;
         const v = sc[field.k] == null ? '' : sc[field.k];
         const reqMark = field.req ? '<span class="req" aria-hidden="true">*</span>' : '';
-        const attrs = (field.placeholder ? ' placeholder="' + esc(field.placeholder) + '"' : '') +
+        const attrs = (field.placeholder ? ' placeholder="' + esc(t(field.placeholder)) + '"' : '') +
           (field.maxlength ? ' maxlength="' + field.maxlength + '"' : '') +
           (field.inputmode ? ' inputmode="' + field.inputmode + '"' : '') +
           (field.autocomplete ? ' autocomplete="' + field.autocomplete + '"' : '') +
@@ -98,20 +102,20 @@
           case 'select':
           case 'state': {
             const options = field.type === 'state' ? DR.STATES : field.options;
-            control = '<select id="' + id + '"' + (lockedVal ? ' disabled' : '') + '><option value="">Select…</option>' +
-              options.map((o) => '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>';
+            control = '<select id="' + id + '"' + (lockedVal ? ' disabled' : '') + '><option value="">' + esc(t('Select…')) + '</option>' +
+              options.map((o) => '<option value="' + esc(o) + '"' + (o === v ? ' selected' : '') + '>' + esc(t(o)) + '</option>').join('') + '</select>';
             break;
           }
           case 'yesno':
           case 'radio': {
             const options = field.type === 'yesno' ? ['Yes', 'No'] : field.options;
             control = '<div class="options" role="radiogroup" aria-labelledby="' + id + '-l">' + options.map((o) =>
-              '<label><input type="radio" name="' + id + '" value="' + esc(o) + '"' + (o === v ? ' checked' : '') + (lockedVal ? ' disabled' : '') + '>' + esc(o) + '</label>').join('') + '</div>';
+              '<label><input type="radio" name="' + id + '" value="' + esc(o) + '"' + (o === v ? ' checked' : '') + (lockedVal ? ' disabled' : '') + '>' + esc(t(o)) + '</label>').join('') + '</div>';
             break;
           }
           case 'ssn':
             control = '<div class="ssn-wrap"><input id="' + id + '" type="password" inputmode="numeric" autocomplete="off" placeholder="###-##-####" maxlength="11" value="' + esc(v) + '"' + attrs + '>' +
-              '<button type="button" class="btn ghost small" data-toggle>Show</button></div>';
+              '<button type="button" class="btn ghost small" data-toggle>' + esc(t('Show')) + '</button></div>';
             break;
           default: {
             const type = { email: 'email', tel: 'tel', date: 'date', number: 'number' }[field.type] || 'text';
@@ -119,8 +123,8 @@
             control = '<input id="' + id + '" type="' + type + '" value="' + esc(v) + '"' + extra + attrs + '>';
           }
         }
-        el.innerHTML = '<label class="lbl" id="' + id + '-l" for="' + id + '">' + esc(field.label) + reqMark + '</label>' + control +
-          (lockedVal ? '<div class="help">Filled in by your agent.</div>' : field.help ? '<div class="help">' + esc(field.help) + '</div>' : '') +
+        el.innerHTML = '<label class="lbl" id="' + id + '-l" for="' + id + '">' + esc(t(field.label)) + reqMark + '</label>' + control +
+          (lockedVal ? '<div class="help">' + esc(t('Filled in by your agent.')) + '</div>' : field.help ? '<div class="help">' + esc(t(field.help)) + '</div>' : '') +
           '<div class="err" role="alert"></div>';
         parent.appendChild(el);
 
@@ -138,7 +142,7 @@
           if (toggle) toggle.addEventListener('click', () => {
             const show = input.type === 'password';
             input.type = show ? 'text' : 'password';
-            toggle.textContent = show ? 'Hide' : 'Show';
+            toggle.textContent = t(show ? 'Hide' : 'Show');
           });
         }
         registry.push({ field, scope: sc, el });
@@ -162,7 +166,7 @@
           const card = document.createElement('div');
           card.className = 'group-item';
           card.innerHTML = '<div class="gi-head"><h4>' + esc(field.itemLabel(index)) + '</h4>' +
-            (items.length > (field.min || 0) ? '<button type="button" class="btn ghost small" data-remove>Remove</button>' : '') + '</div>';
+            (items.length > (field.min || 0) ? '<button type="button" class="btn ghost small" data-remove>' + esc(t('Remove')) + '</button>' : '') + '</div>';
           const grid = document.createElement('div');
           grid.className = 'grid';
           card.appendChild(grid);
@@ -175,7 +179,7 @@
           const add = document.createElement('button');
           add.type = 'button';
           add.className = 'btn secondary';
-          add.textContent = '+ ' + field.addLabel;
+          add.textContent = '+ ' + t(field.addLabel);
           add.addEventListener('click', () => { items.push({}); draw(); changed(); });
           box.appendChild(add);
         }
@@ -194,10 +198,10 @@
           if (el.classList.contains('hidden') || !document.body.contains(el)) return;
           const v = sc[field.k];
           let msg = '';
-          if (field.req && blank(v)) msg = 'This is required.';
-          else if (!blank(v) && field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) msg = 'Enter a valid email address.';
-          else if (!blank(v) && field.type === 'ssn' && String(v).replace(/\D/g, '').length !== 9) msg = 'Enter all 9 digits.';
-          else if (!blank(v) && field.type === 'tel' && String(v).replace(/\D/g, '').length < 10) msg = 'Enter a full phone number.';
+          if (field.req && blank(v)) msg = t('This is required.');
+          else if (!blank(v) && field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) msg = t('Enter a valid email address.');
+          else if (!blank(v) && field.type === 'ssn' && String(v).replace(/\D/g, '').length !== 9) msg = t('Enter all 9 digits.');
+          else if (!blank(v) && field.type === 'tel' && String(v).replace(/\D/g, '').length < 10) msg = t('Enter a full phone number.');
           el.classList.toggle('error', !!msg);
           el.querySelector('.err').textContent = msg;
           if (msg && !first) first = el;
@@ -237,13 +241,13 @@
     const flush = () => { if (rows) out += pendingHeading + '<dl class="kv">' + rows + '</dl>'; else if (!opts.skipBlank) out += pendingHeading; rows = ''; pendingHeading = ''; };
     fields.forEach((field) => {
       if (field.type === 'note') return;
-      if (field.type === 'heading') { flush(); pendingHeading = '<h4 style="margin:14px 0 0;color:var(--navy)">' + esc(field.label) + '</h4>'; return; }
+      if (field.type === 'heading') { flush(); pendingHeading = '<h4 style="margin:14px 0 0;color:var(--navy)">' + esc(t(field.label)) + '</h4>'; return; }
       if (field.showIf && scope[field.showIf.k] !== field.showIf.eq) return;
       if (field.type === 'group') {
         const items = scope[field.k] || [];
         if (items.length) { out += pendingHeading; pendingHeading = ''; }
         flush();
-        if (!items.length) { rows += '<dt>' + esc(field.label) + '</dt><dd class="muted">None</dd>'; return; }
+        if (!items.length) { rows += '<dt>' + esc(t(field.label)) + '</dt><dd class="muted">' + esc(t('None')) + '</dd>'; return; }
         items.forEach((item, i) => {
           out += '<h4 style="margin:14px 0 0">' + esc(field.itemLabel(i)) + '</h4>';
           out += summaryHtml(field.fields.filter((f) => !(f.hideFirst && i === 0)), item, opts);
@@ -252,7 +256,7 @@
       }
       const v = display(field, scope[field.k], opts);
       if (!v && opts.skipBlank) return;
-      rows += '<dt>' + esc(field.label) + '</dt><dd>' + (v ? esc(v) : '<span class="muted">—</span>') + '</dd>';
+      rows += '<dt>' + esc(t(field.label)) + '</dt><dd>' + (v ? esc(v) : '<span class="muted">—</span>') + '</dd>';
     });
     flush();
     return out;
