@@ -1,0 +1,12 @@
+{
+  "name": "ma-rental-matcher",
+  "version": "1.0.0",
+  "description": "Match rental applicants with qualified Massachusetts apartment vacancies (and vice versa).",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/serve.js",
+    "test": "node --test test/*.test.js",
+    "build:samples": "node scripts/build-samples.js"
+  },
+  "license": "MIT"
+}

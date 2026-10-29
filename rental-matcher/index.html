@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MA Rental Matcher</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
+      <span>MA Rental Matcher</span>
+    </div>
+    <button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+    <nav id="nav">
+      <a href="#/overview" data-view="overview">Overview</a>
+      <a href="#/match" data-view="match">Match</a>
+      <a href="#/applicants" data-view="applicants">Applicants</a>
+      <a href="#/units" data-view="units">Vacancies</a>
+      <a href="#/pipeline" data-view="pipeline">Pipeline</a>
+      <a href="#/import" data-view="import">Import / Export</a>
+      <a href="#/settings" data-view="settings">Settings</a>
+    </nav>
+  </header>
+  <main id="app" aria-live="polite"></main>
+  <div id="modal" class="modal" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+  <footer class="foot">
+    Data stays in this browser (local storage). Not legal advice — confirm screening decisions against current Massachusetts law and fair-housing rules.
+  </footer>
+
+  <script src="src/ma-geo.js"></script>
+  <script src="src/csv.js"></script>
+  <script src="src/schema.js"></script>
+  <script src="src/matcher.js"></script>
+  <script src="src/sample-data.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+Client ID,Status,Name,Email,Phone,Household Size,Child Under 6,Budget,Beds,Baths,Desired Locations,Move In,Flexibility,Lease Term,Pets,Service Animal,Must Haves,Nice to Haves,Annual Income,Credit Score,Voucher,Voucher Amount,Cosigner,Cosigner Income,Evictions,Move In Funds,Notes
+A-201,active,Maria Alvarez,maria.a@example.com,617-555-0101,3,yes,2800,2,1,Dorchester; Quincy; South Boston,2026-12-01,30,12,,no,,near transit; laundry,62000,640,yes,1600,no,,0,5000,Has Boston Housing Authority voucher
+A-202,active,Devon Clarke,devon.c@example.com,617-555-0102,1,no,4000,1,1,Cambridge; Somerville,2026-11-15,21,12,dog,no,in-unit laundry,central air; gym; elevator,165000,780,no,,no,,0,12000,Biotech relocation
+A-203,active,Priya & Sam Natarajan,psn@example.com,508-555-0103,4,no,3500,3,1.5,Somerville; Jamaica Plain; Arlington,2026-12-15,30,12,cat,no,laundry,outdoor space; dishwasher; near transit,128000,710,no,,no,,0,10000,Two remote workers + 2 teens
+A-204,active,Tom Becker,tbecker@example.com,978-555-0104,2,no,2000,2,1,North Shore; Merrimack Valley,2026-11-15,30,12,dog,no,parking,laundry,58000,605,no,,yes,90000,1,5000,Needs parking for work truck
+A-205,active,Keisha Brown,kbrown@example.com,413-555-0105,3,yes,1500,2,1,Springfield; Chicopee; Holyoke,2026-11-15,30,12,,no,,parking; laundry,36000,560,yes,900,no,,0,2500,MRVP voucher
+A-206,active,Luis Ortega,lortega@example.com,508-555-0106,2,no,2400,2,1,MetroWest; Worcester,2026-12-01,30,12,cat,no,parking,in-unit laundry; near transit,88000,690,no,,no,,0,6000,Commutes to Boston by rail
+A-207,active,Grace Kim,gkim@example.com,617-555-0107,1,no,2600,1,1,Quincy; Salem; Malden,2027-01-01,30,12,,yes,elevator,in-unit laundry; parking,92000,700,no,,no,,0,8000,Uses a mobility aid; has an assistance dog
+A-208,placed,Robert Chen,rchen@example.com,617-555-0108,1,no,2500,1,1,Malden,2026-10-01,14,12,cat,no,,,80000,720,no,,no,,0,7000,Placed at Malden Center Oct 2026
