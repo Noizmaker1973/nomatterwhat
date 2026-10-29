@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node scripts/serve.js",
     "test": "node --test test/*.test.js",
-    "build:samples": "node scripts/build-samples.js"
+    "build:samples": "node scripts/build-samples.js",
+    "build:artifact": "node scripts/build-artifact.js"
   },
   "license": "MIT"
 }

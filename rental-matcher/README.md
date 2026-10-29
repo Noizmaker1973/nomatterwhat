@@ -17,7 +17,9 @@ npm start          # serves http://localhost:8080
 # …or just open index.html in a browser
 ```
 
-Click **Load sample data** to explore with 14 fictional MA vacancies and 8 fictional applicants.
+The app opens on sample data (14 fictional MA vacancies, 8 fictional applicants). Your first import replaces it, or click **Start empty**.
+
+To host it as one self-contained page, run `npm run build:artifact` (writes `dist/rental-matcher.html`). In that build, exports open a copy-to-clipboard panel instead of downloading a file, for hosts that block downloads.
 
 All data is stored in your browser's local storage and is never uploaded anywhere. Use **Import / Export → Export backup** to move it between computers.
 
@@ -39,7 +41,7 @@ Go to **Import / Export**, choose *Vacancies* or *Applicants*, then drop a CSV/T
 | **Application screening** | Landlord's income multiple, minimum credit, eviction policy, cash due at signing (co-signers count where accepted) | **Qualified**, **Conditional** (borderline, needs co-signer, or data missing) or **Not qualified** |
 | **Fit score 0–100** | Budget, location (exact town / same region), timing, size, amenities, lease term, move-in cost | Ranking within each tier |
 
-Weights, over-budget tolerance, move-in flexibility and strict/loose location matching can all be changed under **Settings**.
+Weights, over-budget tolerance, move-in flexibility and strict/loose location matching can all be changed under **Matching rules**.
 
 Locations cover 260+ MA municipalities in 12 regions (Boston, Inner Core, North Shore, Merrimack Valley, MetroWest, Metro South, South Shore, South Coast, Central MA, Pioneer Valley, Berkshires, Cape & Islands). They also understand Boston neighborhoods, villages such as Hyannis and Wollaston, and region names like "North Shore" or "Cape Cod".
 
@@ -71,7 +73,7 @@ rental-matcher/
 │   ├── sample-data.js  # generated from data/*.csv (npm run build:samples)
 │   └── app.js          # UI
 ├── data/               # sample vacancy & applicant CSVs
-├── scripts/            # static server, sample bundler
+├── scripts/            # static server, sample bundler, single-file build
 └── test/               # node:test suites (npm test)
 ```
 

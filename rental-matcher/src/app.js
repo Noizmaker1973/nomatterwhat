@@ -10,11 +10,26 @@
 
   // ---- State & persistence ---------------------------------------------
 
+  function emptyState() {
+    return { units: [], applicants: [], pipeline: [], settings: matcher.mergeSettings(), isSample: false };
+  }
+  function sampleState(settings) {
+    const loadCSV = (text, kind) => {
+      const { headers, records } = csv.parse(text);
+      const map = schema.autoMapHeaders(headers, kind);
+      return records.map((r) => schema.normalizeRecord(r, kind, map));
+    };
+    return {
+      ...emptyState(),
+      units: loadCSV(sampleData.units, 'unit'),
+      applicants: loadCSV(sampleData.applicants, 'applicant'),
+      settings: settings || matcher.mergeSettings(),
+      isSample: true,
+    };
+  }
+
   let state = load();
 
-  function emptyState() {
-    return { units: [], applicants: [], pipeline: [], settings: matcher.mergeSettings() };
-  }
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -23,7 +38,8 @@
         return { ...emptyState(), ...s, settings: matcher.mergeSettings(s.settings) };
       }
     } catch (e) { /* storage unavailable or corrupt — start fresh */ }
-    return emptyState();
+    return sampleState(); // first visit: open on the sample workspace
+
   }
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
@@ -63,7 +79,11 @@
     return `${prefix}-${String(max + 1).padStart(3, '0')}`;
   }
 
+  // Hosted builds run in a sandbox that blocks file downloads; show a copy panel instead.
+  const CAN_DOWNLOAD = !window.RM_EMBED;
+
   function download(filename, text, type = 'text/csv') {
+    if (!CAN_DOWNLOAD) return showExport(filename, text, type);
     const blob = new Blob([text], { type: type + ';charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -73,26 +93,66 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
   }
 
+  function showExport(filename, text, type) {
+    const isCSV = type === 'text/csv';
+    const tsv = isCSV ? csv.parseRows(text).map((r) => r.map((c) => c.replace(/[\t\r\n]+/g, ' ')).join('\t')).join('\n') : text;
+    modal.innerHTML = `<div class="dialog" role="dialog" aria-modal="true">
+      <div class="dialog-head"><h2>${esc(filename)}</h2><button class="btn sm" data-action="close-modal" aria-label="Close">✕</button></div>
+      <p class="muted">${isCSV
+        ? 'Copy the rows and paste them straight into Excel or Google Sheets. Columns split automatically.'
+        : 'Copy this backup and keep it in a text file. To restore it later, paste it into the import box on the Import / Export page.'}</p>
+      <textarea id="exportText" class="mono" rows="14" readonly>${esc(text)}</textarea>
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn primary" id="copyMain">${isCSV ? 'Copy for Excel / Sheets' : 'Copy backup'}</button>
+        ${isCSV ? '<button class="btn" id="copyCSV">Copy as CSV text</button>' : ''}
+        <button class="btn" data-action="close-modal">Close</button>
+      </div></div>`;
+    modal.hidden = false;
+    const ta = document.getElementById('exportText');
+    const copy = (value, done) => {
+      const fallback = () => { ta.focus(); ta.select(); toast('Text selected. Press Ctrl+C (⌘C on Mac) to copy.'); };
+      try {
+        navigator.clipboard.writeText(value).then(() => toast(done), fallback);
+      } catch (e) { fallback(); }
+    };
+    document.getElementById('copyMain').onclick = () => copy(tsv, isCSV ? `Copied ${Math.max(0, tsv.split('\n').length - 1)} rows. Paste into your spreadsheet.` : 'Backup copied');
+    const c2 = document.getElementById('copyCSV');
+    if (c2) c2.onclick = () => copy(text, 'CSV copied');
+  }
+
+  /** In-page confirmation (the hosted sandbox ignores window.confirm). */
+  function askConfirm(message, okLabel, onOk) {
+    modal.innerHTML = `<div class="dialog narrow" role="alertdialog" aria-modal="true" aria-labelledby="confirmMsg">
+      <h2 id="confirmMsg">${esc(message)}</h2>
+      <div class="btn-row" style="margin-top:16px"><button class="btn danger-solid" id="confirmOk">${esc(okLabel)}</button><button class="btn" data-action="close-modal">Cancel</button></div></div>`;
+    modal.hidden = false;
+    const ok = document.getElementById('confirmOk');
+    ok.onclick = () => { closeModal(); onOk(); };
+    ok.focus();
+  }
+
   // ---- Routing ---------------------------------------------------------
 
+  // Views are addressed by a plain hash (#match); per-view parameters live in memory.
+  let navParams = {};
   function route() {
-    const [path, query] = (location.hash.replace(/^#\/?/, '') || 'overview').split('?');
-    const params = Object.fromEntries(new URLSearchParams(query || ''));
-    return { view: path || 'overview', params };
+    const view = location.hash.replace(/^#\/?/, '').split(/[?/]/)[0] || 'overview';
+    return { view, params: navParams };
   }
   function go(view, params) {
-    const q = params ? '?' + new URLSearchParams(params).toString() : '';
-    location.hash = `#/${view}${q}`;
+    navParams = params || {};
+    if (location.hash !== '#' + view) location.hash = view;
+    else render();
   }
 
-  const VIEWS = { overview: viewOverview, match: viewMatch, applicants: viewApplicants, units: viewUnits, pipeline: viewPipeline, import: viewImport, settings: viewSettings };
+  const VIEWS = { overview: viewOverview, match: viewMatch, applicants: viewApplicants, vacancies: viewUnits, pipeline: viewPipeline, data: viewImport, rules: viewSettings };
 
   function render() {
     const { view, params } = route();
     const fn = VIEWS[view] || viewOverview;
     document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === view));
     document.getElementById('nav').classList.remove('open');
-    app.innerHTML = fn(params);
+    app.innerHTML = sampleBanner() + fn(params);
     if (fn.after) fn.after(params);
   }
 
@@ -110,7 +170,7 @@
       <h2>No ${what} yet</h2>
       <p>Import a spreadsheet, add records by hand, or load the sample Massachusetts data to explore.</p>
       <div class="btn-row" style="justify-content:center">
-        <a class="btn primary" href="#/import">Import data</a>
+        <a class="btn primary" href="#data" data-nav="data">Import data</a>
         <button class="btn" data-action="load-sample">Load sample data</button>
       </div></div>`;
   }
@@ -149,8 +209,8 @@
       <div class="btn-row" style="margin-top:10px">
         ${inPipe ? '<span class="badge info">In pipeline</span>' : `<button class="btn sm" data-action="pipe-add" data-a="${esc(r.applicantId)}" data-u="${esc(r.unitId)}">+ Add to pipeline</button>`}
         ${mode === 'applicant'
-          ? `<button class="btn sm" data-action="edit-unit" data-id="${esc(u.id)}">View vacancy</button><a class="btn sm" href="#/match?mode=unit&id=${encodeURIComponent(u.id)}">Applicants for this unit →</a>`
-          : `<button class="btn sm" data-action="edit-applicant" data-id="${esc(a.id)}">View applicant</button><a class="btn sm" href="#/match?mode=applicant&id=${encodeURIComponent(a.id)}">Units for this applicant →</a>`}
+          ? `<button class="btn sm" data-action="edit-unit" data-id="${esc(u.id)}">View vacancy</button><a class="btn sm" href="#match" data-nav="match" data-mode="unit" data-id="${esc(u.id)}">Applicants for this unit →</a>`
+          : `<button class="btn sm" data-action="edit-applicant" data-id="${esc(a.id)}">View applicant</button><a class="btn sm" href="#match" data-nav="match" data-mode="applicant" data-id="${esc(a.id)}">Units for this applicant →</a>`}
       </div>
     </div>`;
   }
@@ -190,8 +250,8 @@
       <div class="panel"><h2>Best matches</h2>
         ${top.length ? `<div class="table-wrap"><table><thead><tr><th>Applicant</th><th>Vacancy</th><th class="num">Rent</th><th>Status</th><th class="num">Fit</th><th></th></tr></thead><tbody>
         ${top.map((r) => { const a = applicantById(r.applicantId); const u = unitById(r.unitId); return `<tr>
-          <td><a href="#/match?mode=applicant&id=${encodeURIComponent(a.id)}">${esc(a.name || a.id)}</a></td>
-          <td><a href="#/match?mode=unit&id=${encodeURIComponent(u.id)}">${esc(unitTitle(u))}</a><div class="small muted">${esc(unitPlace(u))}</div></td>
+          <td><a href="#match" data-nav="match" data-mode="applicant" data-id="${esc(a.id)}">${esc(a.name || a.id)}</a></td>
+          <td><a href="#match" data-nav="match" data-mode="unit" data-id="${esc(u.id)}">${esc(unitTitle(u))}</a><div class="small muted">${esc(unitPlace(u))}</div></td>
           <td class="num">${money(u.rent)}</td><td>${badge(r.status)}</td><td class="num"><b>${r.score}</b></td>
           <td>${state.pipeline.some((p) => p.unitId === u.id && p.applicantId === a.id) ? '<span class="badge info">In pipeline</span>' : `<button class="btn sm" data-action="pipe-add" data-a="${esc(a.id)}" data-u="${esc(u.id)}">+ Pipeline</button>`}</td></tr>`; }).join('')}
         </tbody></table></div>` : '<p class="muted">No qualified or conditional matches yet. Check budgets, locations and dates, or loosen settings.</p>'}
@@ -199,11 +259,11 @@
       <div class="grid cols-2">
         <div class="panel"><h2>Applicants by number of options</h2><p class="small muted">Fewest options first — these clients need attention.</p>
           <table><thead><tr><th>Applicant</th><th class="num">Qualified</th><th class="num">Conditional</th></tr></thead><tbody>
-          ${aRows.map(({ a, q, c }) => `<tr class="click" data-href="#/match?mode=applicant&id=${encodeURIComponent(a.id)}"><td>${esc(a.name || a.id)}</td><td class="num">${q}</td><td class="num">${c}</td></tr>`).join('')}
+          ${aRows.map(({ a, q, c }) => `<tr class="click" data-nav="match" data-mode="applicant" data-id="${esc(a.id)}"><td>${esc(a.name || a.id)}</td><td class="num">${q}</td><td class="num">${c}</td></tr>`).join('')}
           </tbody></table></div>
         <div class="panel"><h2>Vacancies by number of applicants</h2><p class="small muted">Fewest qualified applicants first.</p>
           <table><thead><tr><th>Vacancy</th><th class="num">Qualified</th><th class="num">Conditional</th></tr></thead><tbody>
-          ${uRows.map(({ u, q, c }) => `<tr class="click" data-href="#/match?mode=unit&id=${encodeURIComponent(u.id)}"><td>${esc(unitTitle(u))}<div class="small muted">${esc(unitPlace(u))}</div></td><td class="num">${q}</td><td class="num">${c}</td></tr>`).join('')}
+          ${uRows.map(({ u, q, c }) => `<tr class="click" data-nav="match" data-mode="unit" data-id="${esc(u.id)}"><td>${esc(unitTitle(u))}<div class="small muted">${esc(unitPlace(u))}</div></td><td class="num">${q}</td><td class="num">${c}</td></tr>`).join('')}
           </tbody></table></div>
       </div>
       ${flagged.length ? `<div class="panel"><h2>Compliance flags</h2>${flagged.map((u) => `<div style="margin-bottom:10px"><b>${esc(u.id)} · ${esc(unitTitle(u))}</b> <span class="muted">${esc(unitPlace(u))}</span>
@@ -327,14 +387,14 @@
     const q = listSearch.applicants.toLowerCase();
     const rows = state.applicants.filter((a) => !q || JSON.stringify(a).toLowerCase().includes(q));
     return `<div class="page-head"><div><h1>Applicants</h1><p class="muted">${state.applicants.length} total · click a row to edit</p></div>
-      <div class="btn-row"><button class="btn primary" data-action="new-applicant">+ Add applicant</button><a class="btn" href="#/import?kind=applicant">Import</a><button class="btn" data-action="export-records" data-kind="applicant">Export CSV</button></div></div>
+      <div class="btn-row"><button class="btn primary" data-action="new-applicant">+ Add applicant</button><a class="btn" href="#data" data-nav="data" data-kind="applicant">Import</a><button class="btn" data-action="export-records" data-kind="applicant">Export CSV</button></div></div>
       <div class="panel"><div class="toolbar"><input id="listSearch" class="grow" placeholder="Search applicants…" value="${esc(listSearch.applicants)}"></div>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Status</th><th class="num">Budget</th><th>Beds</th><th>Locations</th><th>Move-in</th><th class="num">Income</th><th class="num">Credit</th><th>Voucher</th><th></th></tr></thead><tbody>
       ${rows.map((a) => `<tr class="click" data-action="edit-applicant" data-id="${esc(a.id)}">
         <td>${esc(a.id)}</td><td><b>${esc(a.name)}</b><div class="small muted">${esc(a.email || a.phone || '')}</div></td><td><span class="badge ${a.status === 'active' ? 'qualified' : 'gray'}">${esc(a.status)}</span></td>
         <td class="num">${money(a.maxRent)}</td><td>${beds(a.minBedrooms)}+</td><td>${(a.locations || []).map((l) => `<span class="chip">${esc(l)}</span>`).join('')}</td>
         <td>${fmtDate(a.moveInDate)}</td><td class="num">${money(a.annualIncome)}</td><td class="num">${a.creditScore ?? '—'}</td><td>${a.hasVoucher ? money(a.voucherAmount) : '—'}</td>
-        <td><a class="btn sm" href="#/match?mode=applicant&id=${encodeURIComponent(a.id)}" data-stop>Matches</a></td></tr>`).join('')}
+        <td><a class="btn sm" href="#match" data-nav="match" data-mode="applicant" data-id="${esc(a.id)}">Matches</a></td></tr>`).join('')}
       </tbody></table></div></div>`;
   }
   viewApplicants.after = () => bindSearch('applicants');
@@ -344,7 +404,7 @@
     const q = listSearch.units.toLowerCase();
     const rows = state.units.filter((u) => !q || JSON.stringify(u).toLowerCase().includes(q));
     return `<div class="page-head"><div><h1>Vacancies</h1><p class="muted">${state.units.length} total · click a row to edit</p></div>
-      <div class="btn-row"><button class="btn primary" data-action="new-unit">+ Add vacancy</button><a class="btn" href="#/import?kind=unit">Import</a><button class="btn" data-action="export-records" data-kind="unit">Export CSV</button></div></div>
+      <div class="btn-row"><button class="btn primary" data-action="new-unit">+ Add vacancy</button><a class="btn" href="#data" data-nav="data" data-kind="unit">Import</a><button class="btn" data-action="export-records" data-kind="unit">Export CSV</button></div></div>
       <div class="panel"><div class="toolbar"><input id="listSearch" class="grow" placeholder="Search vacancies…" value="${esc(listSearch.units)}"></div>
       <div class="table-wrap"><table><thead><tr><th>ID</th><th>Unit</th><th>Location</th><th>Status</th><th class="num">Rent</th><th>Available</th><th>Screening</th><th>Flags</th><th></th></tr></thead><tbody>
       ${rows.map((u) => { const flags = matcher.unitCompliance(u).filter((f) => f.level === 'warning'); return `<tr class="click" data-action="edit-unit" data-id="${esc(u.id)}">
@@ -352,7 +412,7 @@
         <td><span class="badge ${u.status === 'available' ? 'qualified' : 'gray'}">${esc(u.status)}</span></td><td class="num">${money(u.rent)}</td><td>${fmtDate(u.availableDate)}</td>
         <td class="small">${u.incomeMultiple ? u.incomeMultiple + '× income' : '—'}<br>${u.minCreditScore ? u.minCreditScore + '+ credit' : ''}</td>
         <td>${flags.length ? `<span class="badge not_qualified" title="${esc(flags.map((f) => f.message).join('\n'))}">${flags.length} flag${flags.length > 1 ? 's' : ''}</span>` : ''}</td>
-        <td><a class="btn sm" href="#/match?mode=unit&id=${encodeURIComponent(u.id)}" data-stop>Matches</a></td></tr>`; }).join('')}
+        <td><a class="btn sm" href="#match" data-nav="match" data-mode="unit" data-id="${esc(u.id)}">Matches</a></td></tr>`; }).join('')}
       </tbody></table></div></div>`;
   }
   viewUnits.after = () => bindSearch('units');
@@ -448,8 +508,8 @@
       ${rows.length ? '<button class="btn" data-action="export-pipeline">Export CSV</button>' : ''}</div>
       ${rows.length ? `<div class="panel"><div class="table-wrap"><table><thead><tr><th>Applicant</th><th>Vacancy</th><th>Match</th><th>Stage</th><th>Notes</th><th></th></tr></thead><tbody>
       ${rows.map(({ p, a, u, r }, i) => `<tr>
-        <td>${a ? `<a href="#/match?mode=applicant&id=${encodeURIComponent(a.id)}">${esc(a.name || a.id)}</a>` : `<span class="muted">${esc(p.applicantId)} (deleted)</span>`}</td>
-        <td>${u ? `<a href="#/match?mode=unit&id=${encodeURIComponent(u.id)}">${esc(unitTitle(u))}</a><div class="small muted">${esc(unitPlace(u))} · ${money(u.rent)}</div>` : `<span class="muted">${esc(p.unitId)} (deleted)</span>`}</td>
+        <td>${a ? `<a href="#match" data-nav="match" data-mode="applicant" data-id="${esc(a.id)}">${esc(a.name || a.id)}</a>` : `<span class="muted">${esc(p.applicantId)} (deleted)</span>`}</td>
+        <td>${u ? `<a href="#match" data-nav="match" data-mode="unit" data-id="${esc(u.id)}">${esc(unitTitle(u))}</a><div class="small muted">${esc(unitPlace(u))} · ${money(u.rent)}</div>` : `<span class="muted">${esc(p.unitId)} (deleted)</span>`}</td>
         <td>${r ? `${badge(r.status)} <b>${r.score}</b>` : '—'}</td>
         <td><select data-pipe-stage="${i}">${STAGES.map((s) => `<option ${s === p.stage ? 'selected' : ''}>${s}</option>`).join('')}</select><div class="small muted">Updated ${fmtDate(p.updated)}</div></td>
         <td><input data-pipe-notes="${i}" value="${esc(p.notes || '')}" placeholder="Add note…"></td>
@@ -475,7 +535,7 @@
           <div class="dropzone" id="dropzone"><p><b>Drop a .csv, .tsv or .json file here</b></p><p class="muted small">Export from Excel or Google Sheets as CSV, or export from your CRM/MLS.</p>
             <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.json" style="max-width:280px"></div>
           <p class="small muted" style="margin-top:12px">…or paste spreadsheet rows (with a header row):</p>
-          <textarea id="pasteInput" placeholder="Paste rows copied from Excel/Sheets here"></textarea>
+          <textarea id="pasteInput" placeholder="Paste rows copied from Excel or Google Sheets, or a backup you copied earlier"></textarea>
           <div class="btn-row" style="margin-top:8px"><button class="btn" data-action="parse-paste" data-kind="${kind}">Continue with pasted data</button></div>
         </div>
         <div class="panel"><h2>Templates &amp; samples</h2>
@@ -511,20 +571,28 @@
       const f = e.target.files[0];
       if (!f) return;
       f.text().then((t) => {
-        try {
-          const data = JSON.parse(t);
-          if (!Array.isArray(data.units) || !Array.isArray(data.applicants)) throw new Error('bad');
-          if (!confirm('Replace the current workspace with this backup?')) return;
-          state = { ...emptyState(), ...data, settings: matcher.mergeSettings(data.settings) };
-          save(); toast('Backup restored'); go('overview');
-        } catch (err) { toast('That file is not a valid backup.'); }
+        try { restoreBackup(JSON.parse(t)); } catch (err) { toast('That file is not a valid backup.'); }
       });
     };
   };
 
+  function restoreBackup(data) {
+    if (!Array.isArray(data.units) || !Array.isArray(data.applicants)) throw new Error('not a backup');
+    askConfirm('Replace the current workspace with this backup?', 'Restore backup', () => {
+      state = { ...emptyState(), ...data, settings: matcher.mergeSettings(data.settings), isSample: false };
+      save(); toast('Backup restored'); go('overview');
+    });
+  }
+
   function beginImport(kind, text, fileName) {
     let headers; let records;
     const trimmed = text.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const data = JSON.parse(trimmed);
+        if (Array.isArray(data.units) && Array.isArray(data.applicants)) { restoreBackup(data); return; }
+      } catch (e) { /* not a backup; fall through to record import */ }
+    }
     if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
       try {
         let data = JSON.parse(trimmed);
@@ -584,6 +652,8 @@
   function commitImport() {
     const { kind, records, mapping, mode } = pendingImport;
     const key = kind === 'unit' ? 'units' : 'applicants';
+    const hadSample = state.isSample;
+    if (hadSample) state = { ...emptyState(), settings: state.settings }; // first real import clears the sample workspace
     const prefix = kind === 'unit' ? 'U' : 'A';
     let list = mode === 'replace' ? [] : [...state[key]];
     let added = 0; let updated = 0;
@@ -598,24 +668,25 @@
     state[key] = list;
     save();
     pendingImport = null;
-    toast(`Imported ${added} new${updated ? `, updated ${updated}` : ''} ${kind === 'unit' ? 'vacancies' : 'applicants'}`);
-    go(kind === 'unit' ? 'units' : 'applicants');
+    toast(`Imported ${added} new${updated ? `, updated ${updated}` : ''} ${kind === 'unit' ? 'vacancies' : 'applicants'}${hadSample ? ' (sample data cleared)' : ''}`);
+    go(kind === 'unit' ? 'vacancies' : 'applicants');
   }
 
-  function loadSample() {
-    if ((state.units.length || state.applicants.length) && !confirm('Replace your current vacancies and applicants with the sample data?')) return;
-    const loadCSV = (text, kind) => {
-      const { headers, records } = csv.parse(text);
-      const map = schema.autoMapHeaders(headers, kind);
-      return records.map((r) => schema.normalizeRecord(r, kind, map));
-    };
-    state.units = loadCSV(sampleData.units, 'unit');
-    state.applicants = loadCSV(sampleData.applicants, 'applicant');
-    state.pipeline = [];
+  function loadSample(force) {
+    if (!force && !state.isSample && (state.units.length || state.applicants.length)) {
+      askConfirm('Replace your current vacancies and applicants with the sample data?', 'Load sample data', () => loadSample(true));
+      return;
+    }
+    state = sampleState(state.settings);
     save();
-    toast('Sample data loaded: 14 vacancies, 8 applicants');
+    toast(`Sample data loaded: ${state.units.length} vacancies, ${state.applicants.length} applicants`);
     go('overview');
-    render();
+  }
+
+  function sampleBanner() {
+    if (!state.isSample) return '';
+    return `<div class="banner" role="status"><div><b>You're exploring sample data.</b> These landlords and clients are made up. Import your own spreadsheets to replace them.</div>
+      <div class="btn-row"><a class="btn sm primary" href="#data" data-nav="data">Import your data</a><button class="btn sm" data-action="clear-sample">Start empty</button></div></div>`;
   }
 
   // ---- Settings --------------------------------------------------------
@@ -624,7 +695,7 @@
     const s = state.settings;
     const w = s.weights;
     const num = (id, label, value, hint, attrs = '') => `<label class="field"><span>${label}</span><input type="number" id="${id}" value="${value}" ${attrs}><div class="hint">${hint}</div></label>`;
-    return `<div class="page-head"><div><h1>Settings</h1><p class="muted">Tune how strict the matching is and what matters most in the fit score.</p></div></div>
+    return `<div class="page-head"><div><h1>Matching rules</h1><p class="muted">Tune how strict the matching is and what matters most in the fit score.</p></div></div>
       <div class="panel"><h2>Matching rules</h2><div class="form-grid">
         ${num('sTol', 'Over-budget tolerance (%)', s.rentTolerancePct, 'Units up to this % over budget are still shown, with a penalty.', 'min="0" max="50"')}
         ${num('sFlex', 'Default move-in flexibility (days)', s.defaultFlexDays, 'Used when an applicant has no flexibility set.', 'min="0" max="180"')}
@@ -669,9 +740,13 @@
   // ---- Global event delegation ----------------------------------------
 
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-stop]')) return; // let links inside clickable rows work
-    const hrefRow = e.target.closest('tr[data-href]');
-    if (hrefRow && !e.target.closest('a,button')) { location.hash = hrefRow.dataset.href; return; }
+    const nav = e.target.closest('[data-nav]');
+    if (nav) {
+      e.preventDefault();
+      const { nav: view, ...params } = nav.dataset;
+      go(view, params);
+      return;
+    }
     const el = e.target.closest('[data-action]');
     if (!el) {
       if (e.target === modal) closeModal();
@@ -679,7 +754,7 @@
     }
     const d = el.dataset;
     switch (d.action) {
-      case 'load-sample': loadSample(); break;
+      case 'load-sample': loadSample(false); break;
       case 'match-mode': go('match', { mode: d.mode }); break;
       case 'new-applicant': openEditor('applicant'); break;
       case 'new-unit': openEditor('unit'); break;
@@ -688,10 +763,11 @@
       case 'close-modal': closeModal(); break;
       case 'delete-record': {
         const key = d.kind === 'unit' ? 'units' : 'applicants';
-        if (!confirm(`Delete ${d.id}? This cannot be undone.`)) break;
-        state[key] = state[key].filter((r) => r.id !== d.id);
-        state.pipeline = state.pipeline.filter((p) => (d.kind === 'unit' ? p.unitId : p.applicantId) !== d.id);
-        save(); closeModal(); toast('Deleted'); render();
+        askConfirm(`Delete ${d.id}? This cannot be undone.`, 'Delete', () => {
+          state[key] = state[key].filter((r) => r.id !== d.id);
+          state.pipeline = state.pipeline.filter((p) => (d.kind === 'unit' ? p.unitId : p.applicantId) !== d.id);
+          save(); toast(`Deleted ${d.id}`); render();
+        });
         break;
       }
       case 'pipe-add':
@@ -726,7 +802,7 @@
         download(kind === 'unit' ? 'vacancies.csv' : 'applicants.csv', csv.stringify(list, fields.map((f) => ({ key: f.key, label: f.label }))));
         break;
       }
-      case 'import-kind': go('import', { kind: d.kind }); break;
+      case 'import-kind': go('data', { kind: d.kind }); break;
       case 'parse-paste': {
         const text = document.getElementById('pasteInput').value;
         if (!text.trim()) { toast('Paste some rows first.'); break; }
@@ -739,7 +815,12 @@
       case 'sample-file': download(d.kind === 'unit' ? 'sample-vacancies.csv' : 'sample-applicants.csv', d.kind === 'unit' ? sampleData.units : sampleData.applicants); break;
       case 'backup': download(`rental-matcher-backup-${schema.todayISO()}.json`, JSON.stringify(state, null, 2), 'application/json'); break;
       case 'clear-all':
-        if (confirm('Delete ALL vacancies, applicants and pipeline entries from this browser?')) { state = emptyState(); save(); toast('Workspace cleared'); render(); }
+        askConfirm('Delete all vacancies, applicants and pipeline entries from this browser?', 'Clear all data', () => {
+          state = { ...emptyState(), settings: state.settings }; save(); toast('Workspace cleared'); render();
+        });
+        break;
+      case 'clear-sample':
+        state = { ...emptyState(), settings: state.settings }; save(); toast('Sample data cleared'); go('overview');
         break;
       case 'save-settings': saveSettings(); break;
       case 'reset-settings': state.settings = matcher.mergeSettings(); save(); render(); toast('Settings reset'); break;
@@ -748,7 +829,7 @@
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) closeModal(); });
   document.getElementById('navToggle').onclick = () => document.getElementById('nav').classList.toggle('open');
-  window.addEventListener('hashchange', () => { if (!location.hash.startsWith('#/import')) pendingImport = null; render(); });
+  window.addEventListener('hashchange', () => { if (route().view !== 'data') pendingImport = null; render(); });
 
   render();
 })();
