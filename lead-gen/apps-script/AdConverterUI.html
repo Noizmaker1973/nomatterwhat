@@ -1,0 +1,666 @@
+<title>Listing to Lead Ads</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: a work desk. Listing in on the left, channel-by-channel copy out on the right. */
+:root {
+  --paper: #f3f5f8;
+  --card: #ffffff;
+  --ink: #15212c;
+  --muted: #5a6877;
+  --line: #d8dfe7;
+  --harbor: #1a3a52;
+  --harbor-ink: #ffffff;
+  --brick: #b4452c;
+  --brick-soft: #f8e9e4;
+  --ok: #1d7446;
+  --ok-soft: #e6f3ec;
+  --warn: #9a6200;
+  --warn-soft: #fbf1dd;
+  --bad: #b02a20;
+  --bad-soft: #fbe8e6;
+  --focus: #2f6fa3;
+
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0e151c; --card: #15202a; --ink: #e5ecf2; --muted: #95a3b1; --line: #263544;
+    --harbor: #9cc2e0; --harbor-ink: #0e151c; --brick: #ea8a6a; --brick-soft: #3a211a;
+    --ok: #6cc796; --ok-soft: #15301f; --warn: #e5b357; --warn-soft: #33270e;
+    --bad: #f08a80; --bad-soft: #3a1714; --focus: #8fc0ea; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0e151c; --card: #15202a; --ink: #e5ecf2; --muted: #95a3b1; --line: #263544;
+  --harbor: #9cc2e0; --harbor-ink: #0e151c; --brick: #ea8a6a; --brick-soft: #3a211a;
+  --ok: #6cc796; --ok-soft: #15301f; --warn: #e5b357; --warn-soft: #33270e;
+  --bad: #f08a80; --bad-soft: #3a1714; --focus: #8fc0ea; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 15px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+.wrap { max-width: 1320px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(26px, 3.4vw, 34px); letter-spacing: -0.01em; }
+h2 { font-size: 19px; }
+h3 { font-size: 15px; }
+a { color: var(--harbor); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---------- Header ---------- */
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+.top p { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.flow { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; counter-reset: s; }
+.flow li {
+  counter-increment: s; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px;
+  background: var(--card);
+}
+.flow li::before { content: counter(s) "  "; font-family: var(--mono); color: var(--brick); }
+
+/* ---------- Grid ---------- */
+.desk { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 980px) { .desk { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: 16px; min-width: 0; }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+.eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+/* ---------- Form ---------- */
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+input[type=text], input[type=number], input[type=url], input[type=tel], input[type=email], select, textarea {
+  width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--paper);
+  padding: 7px 9px; color: var(--ink); font-size: 14px;
+}
+textarea { resize: vertical; line-height: 1.45; }
+#paste { min-height: 150px; font-size: 13px; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.fields .wide { grid-column: 1 / -1; }
+.checks { display: grid; gap: 6px; }
+.check { display: flex; gap: 8px; align-items: flex-start; color: var(--ink); font-size: 14px; }
+.check input { margin-top: 3px; }
+.check small { display: block; color: var(--muted); font-size: 12px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.btn {
+  border: 1px solid var(--harbor); background: var(--harbor); color: var(--harbor-ink);
+  border-radius: 6px; padding: 7px 14px; cursor: pointer; font-weight: 600; font-size: 14px; text-decoration: none;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; color: var(--harbor); }
+.btn.small { padding: 3px 9px; font-size: 12px; }
+.btn[disabled] { opacity: .5; cursor: default; }
+details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+details[open] > summary { margin-bottom: 10px; }
+
+.banner { font-size: 13px; background: var(--brick-soft); color: var(--ink); border-radius: 6px; padding: 8px 10px; }
+.status { font-size: 13px; color: var(--muted); min-height: 1.5em; }
+.status.err { color: var(--bad); }
+
+/* ---------- Compliance ---------- */
+.lint { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.lint li { border-radius: 6px; padding: 9px 11px; font-size: 13px; display: grid; gap: 3px; border-left: 3px solid; }
+.lint .block { background: var(--bad-soft); border-color: var(--bad); }
+.lint .warn  { background: var(--warn-soft); border-color: var(--warn); }
+.lint .info  { background: var(--ok-soft); border-color: var(--ok); }
+.lint .tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.lint .block .tag { color: var(--bad); } .lint .warn .tag { color: var(--warn); } .lint .info .tag { color: var(--ok); }
+.lint q { font-style: italic; }
+.lint mark { background: transparent; color: inherit; font-weight: 600; text-decoration: underline; text-decoration-color: var(--bad); }
+.lint .law { color: var(--muted); font-size: 12px; }
+.clean { font-size: 13px; color: var(--ok); margin: 0; }
+
+/* ---------- Channels ---------- */
+.channels { display: flex; gap: 6px; flex-wrap: wrap; }
+.chan {
+  border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 6px 10px;
+  cursor: pointer; display: grid; gap: 0; text-align: left; min-width: 0;
+}
+.chan b { font-size: 13px; font-weight: 600; }
+.chan span { font-size: 11px; color: var(--muted); }
+.chan[aria-pressed="true"] { border-color: var(--harbor); box-shadow: inset 0 0 0 1px var(--harbor); }
+.chan .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; vertical-align: middle; background: var(--ok); }
+.chan .dot.bad { background: var(--bad); }
+.chan.src { opacity: .7; }
+
+.ad-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.ref { font-family: var(--mono); font-size: 12px; color: var(--brick); }
+.ad-fields { display: grid; gap: 12px; }
+.f { display: grid; gap: 4px; min-width: 0; }
+.f-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+.f-name { font-size: 12px; font-weight: 600; letter-spacing: .03em; color: var(--muted); text-transform: uppercase; }
+.f-meta { display: flex; align-items: center; gap: 8px; }
+.count { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.count.over { color: var(--bad); font-weight: 700; }
+.meter { width: 54px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ok); }
+.meter i.near { background: var(--warn); } .meter i.over { background: var(--bad); }
+.f textarea { background: var(--paper); font-size: 14px; }
+.f textarea.over { border-color: var(--bad); }
+.notes { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.src-note { font-size: 13px; color: var(--muted); }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+td { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .chan { transition: border-color .15s, filter .15s; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Listing to Lead Ads</h1>
+      <p>Paste a rental you already have on Zillow or Facebook Marketplace. Get ready-to-post copy for nine more channels, checked against fair housing and Massachusetts rental rules, with a tracking code on every ad.</p>
+    </div>
+    <ol class="flow" aria-label="How it works">
+      <li>Paste listing</li><li>Check details</li><li>Copy ads</li><li>Track leads</li>
+    </ol>
+  </header>
+
+  <div class="desk">
+    <!-- ================= INPUT ================= -->
+    <div class="col">
+      <section class="panel" aria-labelledby="h-paste">
+        <div class="panel-head">
+          <h2 id="h-paste">Your listing</h2>
+          <span class="eyebrow" id="detected"></span>
+        </div>
+        <div class="banner" id="example-banner">This is an example listing. Paste your own over it.</div>
+        <label for="paste">Select all on the Zillow or Marketplace listing page, copy, and paste here
+          <textarea id="paste" spellcheck="false"></textarea>
+        </label>
+        <div class="row">
+          <label for="source" style="flex:1 1 140px">Copied from
+            <select id="source">
+              <option value="auto">Detect automatically</option>
+              <option value="zillow">Zillow</option>
+              <option value="marketplace">Facebook Marketplace</option>
+              <option value="other">Somewhere else</option>
+            </select>
+          </label>
+          <button class="btn" id="read" type="button" style="align-self:end">Read listing</button>
+        </div>
+        <p class="hint">Photos don't copy over. Re-upload them on each site, best interior shot first.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="h-details">
+        <div class="panel-head">
+          <h2 id="h-details">Details</h2>
+          <span class="hint" id="missing"></span>
+        </div>
+        <p class="hint">Fix anything the reader got wrong. The ads update as you type.</p>
+        <div class="fields" id="fields"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-you">
+        <details id="you-box">
+          <summary id="h-you">Your contact info &amp; options</summary>
+          <div class="fields">
+            <label for="o-agentName">Name<input type="text" id="o-agentName"></label>
+            <label for="o-brokerage">Brokerage<input type="text" id="o-brokerage"></label>
+            <label for="o-phone">Phone<input type="tel" id="o-phone" placeholder="(508) 555-0123"></label>
+            <label for="o-email">Email<input type="email" id="o-email"></label>
+            <label class="wide" for="o-landingUrl">Landing page URL (optional)
+              <input type="url" id="o-landingUrl" placeholder="https://… your listing page or inquiry form">
+            </label>
+            <label for="o-refPrefix">Tracking code prefix<input type="text" id="o-refPrefix" maxlength="6"></label>
+          </div>
+          <div class="checks" style="margin-top:12px">
+            <label class="check" for="o-noBrokerFee"><input type="checkbox" id="o-noBrokerFee">
+              <span>No broker fee<small>Turn on when you represent the landlord. Since Aug 2025 MA tenants can't be charged that fee.</small></span></label>
+            <label class="check" for="o-welcomeVouchers"><input type="checkbox" id="o-welcomeVouchers">
+              <span>Say vouchers are welcome<small>Required to accept them in MA anyway. Saying so brings in program-backed renters.</small></span></label>
+            <label class="check" for="o-showAddress"><input type="checkbox" id="o-showAddress">
+              <span>Show street address<small>Off: ads show the city only.</small></span></label>
+          </div>
+        </details>
+      </section>
+    </div>
+
+    <!-- ================= OUTPUT ================= -->
+    <div class="col">
+      <section class="panel" aria-labelledby="h-check">
+        <div class="panel-head">
+          <h2 id="h-check">Fair housing &amp; MA rules check</h2>
+          <span class="status" id="status" role="status"></span>
+        </div>
+        <div id="lint"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-ads">
+        <div class="panel-head">
+          <h2 id="h-ads">Ads</h2>
+          <span class="hint">Pick a channel. Every box is editable, and copy buttons grab one field at a time.</span>
+        </div>
+        <div class="channels" id="channels" role="toolbar" aria-label="Channels"></div>
+        <div id="ad"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="h-track" id="gas-panel">
+        <div class="panel-head">
+          <h2 id="h-track">Track &amp; re-market</h2>
+        </div>
+        <div id="gas-tools" hidden>
+          <div class="row">
+            <button class="btn ghost" type="button" id="log-btn">Save ads to the lead log</button>
+            <button class="btn ghost" type="button" id="match-btn">Find matching past prospects</button>
+          </div>
+          <div id="match-out"></div>
+        </div>
+        <p class="hint" id="standalone-note">Every ad carries a code like <span class="ref" id="ref-sample">DBR-XXXX-CL</span>. The Rental Lead Digest spots it in replies and logs which ad and channel produced each lead. The Apps Script version of this page can also save every ad to your lead log, find past prospects who asked for this kind of unit, and draft re-marketing emails to them.</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!--ENGINE-->
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- runtime: Apps Script web app or standalone page ---------- */
+  var GAS = typeof google !== 'undefined' && google.script && google.script.run;
+  function call(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      if (GAS) {
+        var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+        r[fn].apply(r, args);
+      } else {
+        try { resolve(window[fn].apply(null, args)); } catch (e) { reject(e); }
+      }
+    });
+  }
+  function store(k, v) {
+    try { if (v === undefined) return JSON.parse(localStorage.getItem(k) || 'null'); localStorage.setItem(k, JSON.stringify(v)); }
+    catch (e) { return null; }
+  }
+
+  var EXAMPLE = [
+    'Skip main navigation', 'Zillow', 'Back to search',
+    '12 Maple St APT 2, Framingham, MA 01702', '$2,150/mo', '2 bd', '1 ba', '950 sqft', 'Apartment',
+    'Available Nov 1', 'Cats, small dogs OK', 'In-unit laundry', '1 Parking space', "What's special",
+    'Heat included  Hardwood floors  Off-street parking',
+    'Bright second-floor apartment in a well-kept two-family home near downtown Framingham. Updated kitchen with dishwasher and stainless appliances, hardwood floors throughout, and heat and hot water included. Walk to the commuter rail and Route 9 shopping. No Section 8. Perfect for a quiet professional couple.',
+    'Facts & features', 'Bedrooms: 2', 'Bathrooms: 1', 'Security deposit: $2,150', 'Lease term: 12 months',
+    'Contact', 'Request a tour'
+  ].join('\n');
+
+  var FIELDS = [
+    ['propertyType', 'Property type', 'select', ['Apartment', 'Condo', 'Townhouse', 'House', 'Room', 'Loft']],
+    ['rent', 'Rent per month ($)', 'number'],
+    ['beds', 'Bedrooms (0 = studio)', 'number'],
+    ['baths', 'Bathrooms', 'text'],
+    ['sqft', 'Square feet', 'number'],
+    ['available', 'Available', 'text'],
+    ['address', 'Street address', 'text'],
+    ['unit', 'Unit', 'text'],
+    ['city', 'City / town', 'text'],
+    ['zip', 'ZIP', 'text'],
+    ['leaseTerm', 'Lease', 'text'],
+    ['deposit', 'Security deposit ($)', 'number'],
+    ['pets', 'Pets', 'text'],
+    ['laundry', 'Laundry', 'text'],
+    ['parking', 'Parking', 'text'],
+    ['utilities', 'Utilities included (comma-separated)', 'text', null, 'wide'],
+    ['amenities', 'Features (comma-separated)', 'textarea', null, 'wide'],
+    ['description', 'Description', 'textarea', null, 'wide']
+  ];
+  var OPTS = ['agentName', 'brokerage', 'phone', 'email', 'landingUrl', 'refPrefix', 'noBrokerFee', 'welcomeVouchers', 'showAddress'];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { listing: null, result: null, active: 'craigslist', defaults: {}, seq: 0 };
+
+  function h(tag, attrs, kids) {
+    var el = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === 'text') el.textContent = attrs[k];
+      else if (k === 'class') el.className = attrs[k];
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), attrs[k]);
+      else if (attrs[k] !== false && attrs[k] != null) el.setAttribute(k, attrs[k] === true ? '' : attrs[k]);
+    }
+    (kids || []).forEach(function (c) { if (c != null) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+    return el;
+  }
+  function setStatus(msg, err) { var s = $('status'); s.textContent = msg || ''; s.className = 'status' + (err ? ' err' : ''); }
+  function errMsg(e) { return (e && (e.message || e.toString())) || 'Something went wrong.'; }
+
+  /* ---------- details form ---------- */
+  function buildForm() {
+    var box = $('fields');
+    FIELDS.forEach(function (f) {
+      var id = 'l-' + f[0], input;
+      if (f[2] === 'select') {
+        input = h('select', { id: id }, f[3].map(function (o) { return h('option', { value: o, text: o }); }));
+      } else if (f[2] === 'textarea') {
+        input = h('textarea', { id: id, rows: f[0] === 'description' ? 6 : 2 });
+      } else {
+        input = h('input', { id: id, type: f[2], inputmode: f[2] === 'number' ? 'numeric' : null, min: f[2] === 'number' ? '0' : null });
+      }
+      input.addEventListener('input', onDetailsChange);
+      box.appendChild(h('label', { 'for': id, 'class': f[4] || null }, [f[1], input]));
+    });
+  }
+  function fillForm(L) {
+    FIELDS.forEach(function (f) {
+      var v = L[f[0]];
+      if (Array.isArray(v)) v = v.join(', ');
+      $('l-' + f[0]).value = v == null ? '' : v;
+    });
+    $('detected').textContent = L.source === 'zillow' ? 'Read as Zillow' : L.source === 'marketplace' ? 'Read as Marketplace' : '';
+    showMissing(L);
+  }
+  function readForm() {
+    var L = { source: state.listing ? state.listing.source : 'other', state: 'MA' };
+    FIELDS.forEach(function (f) { L[f[0]] = $('l-' + f[0]).value; });
+    return L;
+  }
+  function showMissing(L) {
+    var miss = [];
+    if (!String(L.rent || '').trim()) miss.push('rent');
+    if (String(L.beds == null ? '' : L.beds).trim() === '') miss.push('bedrooms');
+    if (!String(L.city || '').trim()) miss.push('city');
+    if (!String(L.available || '').trim()) miss.push('available date');
+    $('missing').textContent = miss.length ? 'Still needed: ' + miss.join(', ') : '';
+  }
+
+  /* ---------- options ---------- */
+  function fillOpts(o) {
+    OPTS.forEach(function (k) {
+      var el = $('o-' + k);
+      if (el.type === 'checkbox') el.checked = !!o[k]; else el.value = o[k] || '';
+      el.addEventListener('input', onOptsChange);
+      el.addEventListener('change', onOptsChange);
+    });
+    if (!o.phone) $('you-box').open = true;
+  }
+  function readOpts() {
+    var o = {};
+    OPTS.forEach(function (k) { var el = $('o-' + k); o[k] = el.type === 'checkbox' ? el.checked : el.value.trim(); });
+    return o;
+  }
+  function onOptsChange() {
+    if (!GAS) store('lead-ads-opts', readOpts());
+    regenerate();
+  }
+
+  /* ---------- flow ---------- */
+  var timer = null;
+  function onDetailsChange() {
+    showMissing(readForm());
+    clearTimeout(timer);
+    timer = setTimeout(regenerate, GAS ? 600 : 150);
+  }
+
+  function readListing() {
+    var text = $('paste').value;
+    if (!text.trim()) { setStatus('Paste a listing first.', true); return; }
+    setStatus('Reading listing…');
+    return call('parseListing', text, $('source').value).then(function (L) {
+      state.listing = L;
+      fillForm(L);
+      return regenerate();
+    }).catch(function (e) { setStatus(errMsg(e), true); });
+  }
+
+  function regenerate() {
+    var L = readForm(), seq = ++state.seq;
+    if (state.listing) L.source = state.listing.source;
+    setStatus(GAS ? 'Updating ads…' : '');
+    return call('generateAds', L, readOpts()).then(function (r) {
+      if (seq !== state.seq) return;          // a newer edit is already in flight
+      state.result = r;
+      state.listingForm = L;
+      renderLint(r);
+      renderChannels();
+      renderAd();
+      $('ref-sample').textContent = r.ads[0] ? r.ads[0].ref : '';
+      setStatus('');
+    }).catch(function (e) { setStatus(errMsg(e), true); });
+  }
+
+  /* ---------- compliance ---------- */
+  function renderLint(r) {
+    var box = $('lint'); box.textContent = '';
+    var items = r.lint.slice().sort(function (a, b) { return rank(a) - rank(b); });
+    if (!items.length) {
+      box.appendChild(h('p', { 'class': 'clean', text: 'Nothing flagged. The listing text describes the unit, not the tenant.' }));
+      return;
+    }
+    var ul = h('ul', { 'class': 'lint' });
+    items.forEach(function (it) {
+      var tag = it.severity === 'block' ? 'Removed from every ad' : it.severity === 'warn' ? 'Review before posting' : 'MA rule';
+      var q = h('q');
+      var i = it.sentence.toLowerCase().indexOf(it.match.toLowerCase());
+      if (i >= 0) {
+        q.appendChild(document.createTextNode(it.sentence.slice(0, i)));
+        q.appendChild(h('mark', { text: it.sentence.slice(i, i + it.match.length) }));
+        q.appendChild(document.createTextNode(it.sentence.slice(i + it.match.length)));
+      } else q.textContent = it.sentence;
+      ul.appendChild(h('li', { 'class': it.severity }, [
+        h('span', { 'class': 'tag', text: tag }), q,
+        h('span', { text: it.fix }), h('span', { 'class': 'law', text: it.law })
+      ]));
+    });
+    box.appendChild(ul);
+  }
+  function rank(x) { return x.severity === 'block' ? 0 : x.severity === 'warn' ? 1 : 2; }
+
+  /* ---------- channels ---------- */
+  function renderChannels() {
+    var box = $('channels'); box.textContent = '';
+    state.result.ads.forEach(function (ad) {
+      var over = ad.fields.filter(function (f) { return f.over; }).length + ad.lint.length;
+      var b = h('button', {
+        type: 'button', 'class': 'chan' + (ad.isSource ? ' src' : ''), 'aria-pressed': String(ad.key === state.active),
+        onclick: function () { state.active = ad.key; renderChannels(); renderAd(); }
+      }, [
+        h('b', null, [ad.label, h('span', { 'class': 'dot' + (over ? ' bad' : ''), title: over ? 'Needs attention' : 'Ready', 'aria-hidden': 'true' })]),
+        h('span', { text: ad.isSource ? 'Your original' : ad.kind })
+      ]);
+      box.appendChild(b);
+    });
+  }
+
+  function currentAd() {
+    return state.result.ads.filter(function (a) { return a.key === state.active; })[0] || state.result.ads[0];
+  }
+
+  function renderAd() {
+    var ad = currentAd(), box = $('ad');
+    box.textContent = '';
+    var head = h('div', { 'class': 'ad-head' }, [
+      h('div', null, [h('h3', { text: ad.label }), h('span', { 'class': 'ref', text: ad.ref })]),
+      h('div', { 'class': 'row' }, [
+        h('button', { type: 'button', 'class': 'btn ghost small', onclick: function (e) { copyText(allText(ad), e.currentTarget); } }, ['Copy all']),
+        state.defaults.hasClaude ? h('button', { type: 'button', 'class': 'btn ghost small', onclick: polish }, ['Polish with Claude']) : null,
+        ad.postUrl ? h('a', { href: ad.postUrl, target: '_blank', rel: 'noopener', 'class': 'btn small', text: 'Open ' + ad.label.split(' (')[0] }) : null
+      ])
+    ]);
+    box.appendChild(head);
+    if (ad.isSource) box.appendChild(h('p', { 'class': 'src-note', text: 'You copied this listing from here. Use this version to refresh the original with the tracking code and compliance fixes.' }));
+
+    var list = h('div', { 'class': 'ad-fields', style: 'margin-top:12px' });
+    ad.fields.forEach(function (f, i) { list.appendChild(fieldEl(ad, f, i)); });
+    box.appendChild(list);
+
+    if (ad.lint.length) {
+      var ul = h('ul', { 'class': 'lint', style: 'margin-top:12px' });
+      ad.lint.forEach(function (it) {
+        ul.appendChild(h('li', { 'class': it.severity }, [h('span', { 'class': 'tag', text: 'Check this ad' }), h('q', { text: it.sentence }), h('span', { text: it.fix })]));
+      });
+      box.appendChild(ul);
+    }
+    if (ad.notes && ad.notes.length) {
+      box.appendChild(h('h3', { text: 'Posting notes', style: 'margin-top:16px' }));
+      box.appendChild(h('ul', { 'class': 'notes', style: 'margin-top:6px' }, ad.notes.map(function (n) { return h('li', { text: n }); })));
+    }
+  }
+
+  function fieldEl(ad, f, i) {
+    var id = 'f-' + ad.key + '-' + i;
+    var lines = f.value.split('\n').length;
+    var rows = f.multiline ? Math.min(Math.max(lines + 1, 3), 22) : Math.max(1, Math.ceil(f.value.length / 70));
+    var ta = h('textarea', { id: id, rows: rows, spellcheck: 'true', 'class': f.over ? 'over' : null });
+    ta.value = f.value;
+    var count = h('span', { 'class': 'count' });
+    var bar = h('i');
+    var meter = f.limit ? h('span', { 'class': 'meter', 'aria-hidden': 'true' }, [bar]) : null;
+    function upd() {
+      f.value = ta.value;
+      var n = ta.value.length;
+      f.over = !!(f.limit && n > f.limit);
+      count.textContent = f.limit ? n + ' / ' + f.limit : n + ' chars';
+      count.className = 'count' + (f.over ? ' over' : '');
+      ta.className = f.over ? 'over' : '';
+      if (meter) {
+        bar.style.width = Math.min(100, Math.round(n / f.limit * 100)) + '%';
+        bar.className = f.over ? 'over' : n > f.limit * 0.9 ? 'near' : '';
+      }
+    }
+    ta.addEventListener('input', upd);
+    upd();
+    return h('div', { 'class': 'f' }, [
+      h('div', { 'class': 'f-top' }, [
+        h('label', { 'for': id, 'class': 'f-name', text: f.name }),
+        h('span', { 'class': 'f-meta' }, [meter, count,
+          h('button', { type: 'button', 'class': 'btn ghost small', onclick: function (e) { copyText(ta.value, e.currentTarget, ta); } }, ['Copy'])])
+      ]),
+      ta
+    ]);
+  }
+
+  function allText(ad) {
+    return ad.fields.map(function (f) { return f.name + ':\n' + f.value; }).join('\n\n');
+  }
+
+  function copyText(text, btn, ta) {
+    function done(ok) {
+      var old = btn.textContent;
+      btn.textContent = ok ? 'Copied' : 'Press Ctrl+C';
+      setTimeout(function () { btn.textContent = old; }, 1400);
+    }
+    function fallback() {
+      var el = ta;
+      if (!el) { el = h('textarea'); el.value = text; el.style.position = 'fixed'; el.style.opacity = '0'; document.body.appendChild(el); }
+      el.focus(); el.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      if (!ta) document.body.removeChild(el);
+      done(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    } else fallback();
+  }
+
+  /* ---------- Apps Script-only tools ---------- */
+  function polish(e) {
+    var btn = e.currentTarget, ad = currentAd();
+    btn.disabled = true; btn.textContent = 'Polishing…';
+    call('polishAd', state.listingForm, ad).then(function (p) {
+      var i = state.result.ads.indexOf(ad);
+      state.result.ads[i] = p;
+      renderChannels(); renderAd();
+      setStatus(p.polished ? 'Claude rewrote ' + p.polished + ' field' + (p.polished === 1 ? '' : 's') + '. Facts and limits re-checked.' : 'Claude kept the original copy.');
+    }).catch(function (err) { btn.disabled = false; btn.textContent = 'Polish with Claude'; setStatus(errMsg(err), true); });
+  }
+
+  function logAdsClick(e) {
+    var btn = e.currentTarget; btn.disabled = true;
+    call('logAds', state.listingForm, state.result.ads.map(function (a) { return { label: a.label, ref: a.ref, trackedUrl: a.trackedUrl }; }))
+      .then(function (r) {
+        btn.disabled = false;
+        var out = $('match-out'); out.textContent = '';
+        out.appendChild(h('p', { 'class': 'hint' }, ['Saved ' + r.logged + ' ads. ', h('a', { href: r.url, target: '_blank', rel: 'noopener', text: 'Open the ad log' })]));
+      }).catch(function (err) { btn.disabled = false; setStatus(errMsg(err), true); });
+  }
+
+  function matchClick(e) {
+    var btn = e.currentTarget; btn.disabled = true;
+    var out = $('match-out'); out.textContent = 'Searching the lead log…';
+    call('findMatchingProspects', state.listingForm).then(function (rows) {
+      btn.disabled = false; out.textContent = '';
+      if (!rows.length) {
+        out.appendChild(h('p', { 'class': 'hint', text: 'No past prospects in the last 90 days asked for this city, bedroom count and budget.' }));
+        return;
+      }
+      var tbody = h('tbody');
+      rows.forEach(function (p, i) {
+        tbody.appendChild(h('tr', null, [
+          h('td', null, [h('input', { type: 'checkbox', id: 'm-' + i, checked: !!p.email, disabled: !p.email, 'aria-label': 'Draft email to ' + (p.name || p.email || 'prospect') })]),
+          h('td', { text: p.name || '—' }), h('td', { text: p.email || p.phone }),
+          h('td', { text: [p.city, p.bedrooms ? p.bedrooms + ' BR' : '', p.budget ? '$' + p.budget : ''].filter(Boolean).join(' · ') }),
+          h('td', { text: p.matchReasons.join(', ') }), h('td', { text: p.firstSeen })
+        ]));
+      });
+      out.appendChild(h('div', { 'class': 'table-wrap' }, [h('table', null, [
+        h('thead', null, [h('tr', null, ['', 'Name', 'Contact', 'Asked for', 'Why it fits', 'First seen'].map(function (t) { return h('th', { text: t }); }))]),
+        tbody
+      ])]));
+      out.appendChild(h('div', { 'class': 'row', style: 'margin-top:10px' }, [
+        h('button', { type: 'button', 'class': 'btn', onclick: function (ev) { drafts(ev, rows); } }, ['Create Gmail drafts for checked']),
+        h('span', { 'class': 'hint', text: 'Drafts only. Nothing is sent until you review it in Gmail.' })
+      ]));
+    }).catch(function (err) { btn.disabled = false; out.textContent = ''; setStatus(errMsg(err), true); });
+  }
+
+  function drafts(e, rows) {
+    var picked = rows.filter(function (p, i) { var c = $('m-' + i); return c && c.checked; });
+    var em = state.result.ads.filter(function (a) { return a.key === 'outreach'; })[0];
+    if (!em || !picked.length) return;
+    var subject = em.fields[0].value, body = em.fields[1].value;
+    var btn = e.currentTarget; btn.disabled = true;
+    call('createOutreachDrafts', picked, subject, body).then(function (r) {
+      btn.textContent = r.drafts + ' drafts created';
+    }).catch(function (err) { btn.disabled = false; setStatus(errMsg(err), true); });
+  }
+
+  /* ---------- boot ---------- */
+  function boot(defaults) {
+    state.defaults = defaults || {};
+    buildForm();
+    var saved = GAS ? null : store('lead-ads-opts');
+    fillOpts(saved || defaults);
+    $('paste').value = EXAMPLE;
+    $('paste').addEventListener('input', function () { $('example-banner').hidden = true; });
+    $('read').addEventListener('click', readListing);
+    if (GAS) {
+      $('gas-tools').hidden = false;
+      $('standalone-note').textContent = 'Every ad carries a tracking code. The Lead Digest logs which ad produced each reply.';
+      $('log-btn').addEventListener('click', logAdsClick);
+      $('match-btn').addEventListener('click', matchClick);
+      if (!defaults.hasLeadLog) $('match-btn').disabled = true;
+    }
+    readListing();
+  }
+
+  if (GAS) {
+    call('getAdDefaults').then(boot).catch(function (e) { boot({}); setStatus(errMsg(e), true); });
+  } else {
+    boot({ agentName: '', brokerage: '', phone: '', email: '', landingUrl: '', refPrefix: 'DBR',
+           noBrokerFee: false, welcomeVouchers: true, showAddress: true, hasClaude: false });
+  }
+})();
+</script>

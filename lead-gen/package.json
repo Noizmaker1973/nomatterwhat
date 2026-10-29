@@ -1,0 +1,11 @@
+{
+  "name": "rental-lead-ads",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Turn a Zillow or Facebook Marketplace rental listing into compliant, tracked ads for every lead channel. Google Apps Script + standalone page.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "node build.js"
+  },
+  "license": "MIT"
+}
