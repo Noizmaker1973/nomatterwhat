@@ -27,8 +27,18 @@
   function copy(text, label) {
     (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast((label || 'Link') + ' copied'), () => prompt('Copy this:', text));
   }
-  const statusClass = (s) => ({ New: '', 'In review': 's-review', 'Docs needed': 's-docs', 'Sent to landlord': 's-sent', Approved: 's-ok', 'Lease signed': 's-ok', Denied: 's-bad', Withdrawn: 's-muted' }[s] || '');
+  const statusClass = (s) => ({ New: '', 'In review': 's-review', 'Docs needed': 's-docs', 'Sent to landlord': 's-sent', Approved: 's-ok', 'Lease signed': 's-ok', Denied: 's-bad', Withdrawn: 's-muted', Received: 's-ok', Requested: 's-sent', Waived: 's-muted' }[s] || '');
   const evictionClass = (ev) => ({ 'No records found': 's-ok', 'Records found': 's-docs', Waived: 's-muted' }[ev && ev.status] || '');
+  const initials = (name) => String(name || '?').split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  // "Received" / "2 of 2 Not requested" / "1 Received · 1 Requested"
+  const tally = (list) => {
+    if (!list.length) return '—';
+    const counts = {};
+    list.forEach((x) => { counts[x] = (counts[x] || 0) + 1; });
+    const keys = Object.keys(counts);
+    if (keys.length === 1) return esc(keys[0]) + (list.length > 1 ? ' <span class="muted">(all ' + list.length + ')</span>' : '');
+    return keys.map((k) => counts[k] + ' ' + esc(k)).join(' · ');
+  };
   const pill = (s) => '<span class="pill ' + statusClass(s) + '">' + esc(s) + '</span>';
   const ago = (iso) => {
     const m = Math.round((Date.now() - new Date(iso)) / 60000);
@@ -107,6 +117,8 @@
     document.getElementById('nav').classList.remove('hidden');
     renderHealth();
     const [view, arg] = location.hash.replace(/^#/, '').split('/');
+    const current = { new: '#new', agents: '#agents' }[view] || '#';
+    document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === current));
     try {
       if (view === 'deal' && arg) return await renderDeal(arg);
       if (view === 'new') return renderNew();
@@ -180,7 +192,7 @@
     $app.innerHTML = `
       <div class="page-head"><h1>Applications</h1>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn secondary" id="my-link">Copy my apply link</button><a class="btn" href="#new">+ New applicant link</a></div></div>
-      <div class="stats">${['New', 'In review', 'Docs needed', 'Sent to landlord', 'Approved'].map((s) => '<div class="stat' + (filters.status === s ? ' on' : '') + '" data-s="' + esc(s) + '"><b>' + (counts[s] || 0) + '</b><span>' + esc(s) + '</span></div>').join('')}</div>
+      <div class="stats">${['New', 'In review', 'Docs needed', 'Sent to landlord', 'Approved'].map((s) => '<div class="stat ' + statusClass(s) + (filters.status === s ? ' on' : '') + '" data-s="' + esc(s) + '" role="button" tabindex="0"><b>' + (counts[s] || 0) + '</b><span>' + esc(s) + '</span></div>').join('')}</div>
       <div class="toolbar">
         <input class="input" id="q" placeholder="Search applicant, property, landlord, notes…" value="${esc(filters.q)}">
         <select class="input" id="fs"><option value="">All statuses</option>${STATUSES.map((s) => '<option' + (s === filters.status ? ' selected' : '') + '>' + esc(s) + '</option>').join('')}</select>
@@ -193,18 +205,18 @@
       const rows = deals.filter((d) =>
         (!filters.status || d.status === filters.status) && (!filters.form || d.formType === filters.form) && (!filters.mine || d.agentId === me.id) &&
         (!q || [propertyLine(d.sheet), d.sheet.landlord, d.agentName, ...d.applicants.map((a) => a.name + ' ' + a.email), ...d.notes.map((n) => n.text)].join(' ').toLowerCase().includes(q)));
-      document.getElementById('rows').innerHTML = rows.length ? `<table class="deals"><thead><tr><th>Property</th><th>Applicants</th><th>Application</th><th>Docs</th><th>Status</th><th>Agent</th><th>Updated</th></tr></thead><tbody>
+      document.getElementById('rows').innerHTML = rows.length ? `<table class="deals"><thead><tr><th>Property</th><th>Applicants</th><th>Application</th><th>Docs</th><th>Status</th><th>Agent</th><th>Updated</th><th></th></tr></thead><tbody>
         ${rows.map((d) => {
           const form = FORMS[d.formType];
           const missing = d.applicants.reduce((n, a) => n + missingDocs(form, a).length, 0);
           return `<tr data-id="${d.id}">
-            <td data-l="Property"><b>${esc(propertyLine(d.sheet) || 'No property yet')}</b>${d.sheet.rent ? '<br><span class="muted small">' + money(d.sheet.rent) + '/mo</span>' : ''}${d.notes.length ? '<br><span class="muted small" title="' + esc(d.notes[0].text.slice(0, 200)) + '">📝 ' + d.notes.length + ' note' + (d.notes.length > 1 ? 's' : '') + ' · latest: ' + esc(d.notes[0].text.slice(0, 50)) + (d.notes[0].text.length > 50 ? '…' : '') + '</span>' : ''}</td>
+            <td data-l="Property"><b>${esc(propertyLine(d.sheet) || 'No property yet')}</b>${d.sheet.rent ? '<br><span class="muted small">' + money(d.sheet.rent) + '/mo</span>' : ''}${d.notes.length ? '<span class="note-snippet" title="' + esc(d.notes[0].text.slice(0, 200)) + '">📝 ' + esc(d.notes[0].text) + '</span>' : ''}</td>
             <td data-l="Applicants">${d.applicants.length ? d.applicants.map((a) => esc(a.name)).join('<br>') : '<span class="muted">Waiting for applicant</span>'}</td>
             <td data-l="Application">${esc(form.short)}</td>
             <td data-l="Docs">${!d.applicants.length ? '—' : missing ? '<span class="pill warn">' + missing + ' missing</span>' : '<span class="pill ok">Complete</span>'}</td>
             <td data-l="Status">${pill(d.status)}${d.applicants.some((a) => a.reopened) ? ' <span class="pill warn" title="Waiting for the applicant to update their application">Sent back</span>' : ''}</td>
-            <td data-l="Agent">${esc(d.agentName)}</td>
-            <td data-l="Updated" class="muted small">${ago(d.updatedAt)}</td></tr>`;
+            <td data-l="Agent" class="nowrap">${esc(d.agentName)}</td>
+            <td data-l="Updated" class="muted small nowrap">${ago(d.updatedAt)}</td><td class="go" aria-hidden="true">›</td></tr>`;
         }).join('')}</tbody></table>`
         : '<div class="card empty">' + (deals.length ? 'No applications match these filters.' : 'No applications yet. Create an applicant link to get started, or share your apply link.') + '</div>';
       document.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => { location.hash = 'deal/' + tr.dataset.id; });
@@ -213,7 +225,10 @@
     document.getElementById('fs').onchange = (e) => { filters.status = e.target.value; renderList(); };
     document.getElementById('ff').onchange = (e) => { filters.form = e.target.value; draw(); };
     document.getElementById('fm').onchange = (e) => { filters.mine = e.target.checked; draw(); };
-    document.querySelectorAll('.stat').forEach((s) => s.onclick = () => { filters.status = filters.status === s.dataset.s ? '' : s.dataset.s; renderList(); });
+    document.querySelectorAll('.stat').forEach((s) => {
+      s.onclick = () => { filters.status = filters.status === s.dataset.s ? '' : s.dataset.s; renderList(); };
+      s.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); s.onclick(); } };
+    });
     document.getElementById('my-link').onclick = () => copy(personal, 'Your apply link');
     draw();
   }
@@ -287,23 +302,24 @@
     const credits = deal.applicants.map((a) => a.credit.status);
 
     $app.innerHTML = `
-      <div class="page-head">
-        <div><a href="#" class="small">← All applications</a><h1>${esc(propertyLine(sheet) || 'New deal')}</h1>
-          <span class="muted small">${esc(form.title)} · created ${new Date(deal.createdAt).toLocaleDateString()}</span></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <select class="input" id="status" style="width:auto">${STATUSES.map((s) => '<option' + (s === deal.status ? ' selected' : '') + '>' + esc(s) + '</option>').join('')}</select>
-          <select class="input" id="assign" style="width:auto"><option value="">Unassigned</option>${agents.map((a) => '<option value="' + a.id + '"' + (a.id === deal.agentId ? ' selected' : '') + '>' + esc(a.name) + '</option>').join('')}</select>
-          <a class="btn secondary" href="/agent/print?deal=${deal.id}" target="_blank">Print summary</a>
-          ${deal.applicants.length ? '<a class="btn" href="/api/deals/' + deal.id + '/package.pdf" target="_blank" title="Every applicant\'s original form and documents, merged into one PDF for the landlord">📎 Landlord package (PDF)</a>' : ''}
+      <a href="#" class="back-link">← All applications</a>
+      <div class="deal-head card">
+        <div class="dh-title"><h1>${esc(propertyLine(sheet) || 'New deal')}</h1>
+          <div class="dh-meta">${pill(deal.status)} <span>${esc(form.title)}</span><span>Created ${new Date(deal.createdAt).toLocaleDateString()}</span>${sheet.landlord ? '<span>' + esc(sheet.landlord) + '</span>' : ''}</div></div>
+        <div class="dh-controls">
+          <label class="ctl"><span>Status</span><select class="input" id="status">${STATUSES.map((s) => '<option' + (s === deal.status ? ' selected' : '') + '>' + esc(s) + '</option>').join('')}</select></label>
+          <label class="ctl"><span>Agent</span><select class="input" id="assign"><option value="">Unassigned</option>${agents.map((a) => '<option value="' + a.id + '"' + (a.id === deal.agentId ? ' selected' : '') + '>' + esc(a.name) + '</option>').join('')}</select></label>
+          <div class="dh-actions"><a class="btn secondary" href="/agent/print?deal=${deal.id}" target="_blank">Print summary</a>
+          ${deal.applicants.length ? '<a class="btn" href="/api/deals/' + deal.id + '/package.pdf" target="_blank" title="Every applicant\'s original form and documents, merged into one PDF for the landlord">📎 Landlord package (PDF)</a>' : ''}</div>
         </div>
       </div>
       <div class="metrics">
         <div class="metric"><span>Rent</span><b>${rent ? money(rent) : '—'}</b></div>
-        <div class="metric"><span>Household income / mo</span><b>${income ? money(income) : '—'}</b></div>
+        <div class="metric"><span>Income / mo</span><b>${income ? money(income) : '—'}</b></div>
         <div class="metric"><span>Income ÷ rent</span><b>${ratio ? ratio.toFixed(2) + '×' : '—'}</b> ${ratio ? (ratio >= form.incomeMultiple ? '<span class="pill ok">meets ' + form.incomeMultiple + '×</span>' : '<span class="pill warn">under ' + form.incomeMultiple + '×</span>') : ''}</div>
-        <div class="metric"><span>Documents</span><b>${deal.applicants.length ? (docsMissing ? docsMissing + ' missing' : 'Complete') : '—'}</b></div>
-        <div class="metric"><span>Credit</span><b style="font-size:1rem">${credits.length ? credits.map(esc).join(', ') : '—'}</b></div>
-        <div class="metric"><span>Eviction check</span><b style="font-size:1rem">${deal.applicants.length ? deal.applicants.map((a) => esc(a.eviction.status)).join(', ') : '—'}</b></div>
+        <div class="metric ${deal.applicants.length ? (docsMissing ? 'm-warn' : 'm-ok') : ''}"><span>Documents</span><b>${deal.applicants.length ? (docsMissing ? docsMissing + ' missing' : 'Complete') : '—'}</b></div>
+        <div class="metric"><span>Credit</span><b class="b-sm">${tally(credits)}</b></div>
+        <div class="metric"><span>Eviction check</span><b class="b-sm">${tally(deal.applicants.map((a) => a.eviction.status))}</b></div>
       </div>
       <div class="deal-grid">
         <div>
@@ -322,9 +338,9 @@
           </div>
           <div class="card"><h3>Applicant link</h3><p class="muted small">Send to co-applicants — everyone who applies with it is added here.</p>
             <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn secondary small" id="cp-link">Copy</button></div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(smsLink(linkMessage(deal)))}">Text</a><button class="btn ghost small" id="em-link">Email</button></div>
+            <div class="chips" style="margin-top:10px"><a class="btn chip" href="${esc(smsLink(linkMessage(deal)))}">💬 Text</a><button class="btn chip" id="em-link">✉ Email</button></div>
             <h3 style="margin-top:18px">Guarantor form</h3><p class="muted small">Blank form for applicants who need a guarantor.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn ghost small" href="${esc(DR.GUARANTOR_URL)}" target="_blank">View</a><button class="btn ghost small" id="em-guar">Email form</button><button class="btn ghost small" id="cp-guar">Copy link</button></div>
+            <div class="chips"><a class="btn chip" href="${esc(DR.GUARANTOR_URL)}" target="_blank">View</a><button class="btn chip" id="em-guar">✉ Email form</button><button class="btn chip" id="cp-guar">⧉ Copy link</button></div>
           </div>
           <div class="card"><h3>Activity</h3><ul class="activity">${(deal.activity || []).map((a) => '<li><time>' + new Date(a.at).toLocaleString() + ' · ' + esc(a.who) + '</time>' + esc(a.text) + '</li>').join('') || '<li class="muted">Nothing yet.</li>'}</ul></div>
           ${me.role === 'admin' ? '<div class="card"><h3>Delete</h3><p class="muted small">Permanently deletes this deal, its applications and documents.</p><button class="btn danger small" id="del">Delete deal</button></div>' : ''}
@@ -393,33 +409,38 @@
       const missing = missingDocs(form, a);
       return `<div class="card" data-app="${a.id}">
         <div class="applicant-head">
-          <div><span class="step-label">Applicant ${i + 1}</span><h2 style="margin:0">${esc(a.name)}</h2>
-            <span class="small">${a.email ? '<a href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : ''}${a.phone ? ' · <a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : ''}</span><br>
-            <span class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()}${a.resubmittedAt ? ' · <b>updated ' + new Date(a.resubmittedAt).toLocaleString() + '</b>' : ''} · income ${a.monthlyIncome ? money(a.monthlyIncome) + '/mo' : 'not stated'}</span></div>
-          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">${missing.length ? '<span class="pill warn">' + missing.length + ' doc(s) missing</span>' : '<span class="pill ok">Docs complete</span>'}
-            <a class="btn secondary small" href="/api/apps/${a.id}/original.pdf" target="_blank" title="The applicant's answers printed on ${esc(form.name)}'s original form">📄 ${esc(form.short)} form (PDF)</a>
-            <a class="btn small" href="/api/apps/${a.id}/package.pdf" target="_blank" title="${esc(form.short)} form followed by the applicant's ID, pay stubs and other documents, merged into one PDF">📎 Form + documents (PDF)</a></div>
+          <div class="avatar" aria-hidden="true">${esc(initials(a.name))}</div>
+          <div class="ah-main"><span class="step-label">Applicant ${i + 1}</span>
+            <h2>${esc(a.name)} ${missing.length ? '<span class="pill warn">' + missing.length + ' doc' + (missing.length > 1 ? 's' : '') + ' missing</span>' : '<span class="pill ok">Docs complete</span>'}</h2>
+            <div class="ah-contact">${a.email ? '<a href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : ''}${a.phone ? '<a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : ''}<span>${a.monthlyIncome ? money(a.monthlyIncome) + '/mo income' : 'Income not stated'}</span></div>
+            <div class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()}${a.resubmittedAt ? ' · <b>updated ' + new Date(a.resubmittedAt).toLocaleString() + '</b>' : ''}</div></div>
+          <div class="ah-actions">
+            <a class="btn secondary small" href="/api/apps/${a.id}/original.pdf" target="_blank" title="The applicant's answers printed on ${esc(form.name)}'s original form">📄 ${esc(form.short)} form</a>
+            <a class="btn small" href="/api/apps/${a.id}/package.pdf" target="_blank" title="${esc(form.short)} form followed by the applicant's ID, pay stubs and other documents, merged into one PDF">📎 Form + documents</a></div>
         </div>
 
         ${reopenHtml(form, a)}
 
-        <h4 style="margin:16px 0 0">Document checklist</h4>
+        <h4 class="section-label">Documents</h4>
         <ul class="checklist">${docs.map((d) => {
           const files = filesFor(d.id);
           if (!files.length && !d.req && ['other', 'credit_report', 'eviction_check'].includes(d.id)) return '';
-          return '<li><div class="row"><span>' + (files.length ? '✅' : d.req ? '⚠️' : '▫️') + ' ' + esc(d.label) + '</span>' + (files.length ? '' : d.req ? '<span class="pill warn">Missing</span>' : '<span class="muted small">If applicable</span>') + '</div>' +
+          return '<li><div class="row"><span class="doc-name"><i class="dot ' + (files.length ? 'ok' : d.req ? 'warn' : '') + '" aria-hidden="true">' + (files.length ? '✓' : d.req ? '!' : '') + '</i>' + esc(d.label) + '</span>' + (files.length ? '' : d.req ? '<span class="pill warn">Missing</span>' : '<span class="muted small">If applicable</span>') + '</div>' +
             (files.length ? '<div class="files">' + files.map((f) => '<label class="pkg" title="Include in the merged PDF"><input type="checkbox" data-pkg="' + f.id + '"' + (f.inPackage ? ' checked' : '') + '></label><a href="/api/files/' + a.id + '/' + f.id + '" target="_blank" title="' + esc(f.name) + '">' + esc(f.name) + (f.by === 'agent' ? ' (agent)' : '') + '</a><a href="/api/files/' + a.id + '/' + f.id + '?download=1" title="Download">⬇</a>' + (/^image\//.test(f.mime) ? '<a href="/api/files/' + a.id + '/' + f.id + '?as=pdf" target="_blank" title="Open this photo as a PDF">PDF</a>' : '')).join('') + '</div>' : '') + '</li>';
         }).join('')}</ul>
         <p class="small muted" style="margin:-4px 0 10px">Tick the documents to include in the merged PDF (<span data-pkg-count></span>).</p>
-        <div class="inline-form">
-          <select class="input" data-up-type>${docs.map((d) => '<option value="' + d.id + '">' + esc(d.label) + '</option>').join('')}</select>
+        <div class="inline-form upload-row">
+          <select class="input" data-up-type aria-label="Document type">${docs.map((d) => '<option value="' + d.id + '">' + esc(d.label) + '</option>').join('')}</select>
           <label class="btn secondary small">Upload for applicant<input type="file" multiple class="hidden" data-up></label>
-          ${missing.length ? '<button class="btn ghost small" data-email-docs>Email “please upload” request</button><button class="btn ghost small" data-req-docs>Copy message</button>' : ''}
-          ${a.email ? '<button class="btn ghost small" data-email-app>Email applicant</button><button class="btn ghost small" data-email-guar>Email guarantor form</button>' : ''}
-          <button class="btn ghost small" data-status-link>Copy applicant's upload link</button>
+        </div>
+        <h4 class="section-label">Message applicant</h4>
+        <div class="chips">
+          ${missing.length ? '<button class="btn chip" data-email-docs>✉ Ask for missing docs</button><button class="btn chip" data-req-docs>⧉ Copy docs request</button>' : ''}
+          ${a.email ? '<button class="btn chip" data-email-app>✉ Email applicant</button><button class="btn chip" data-email-guar>✉ Send guarantor form</button>' : ''}
+          <button class="btn chip" data-status-link>⧉ Copy upload link</button>
         </div>
 
-        <div class="subcard"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h4 style="margin:0">Credit report</h4><button class="btn small" data-ygl>Credit check (YGL)</button></div>
+        <div class="subcard"><div class="subcard-head"><h4>Credit report ${pill(a.credit.status)}</h4><button class="btn small" data-ygl>Credit check (YGL)</button></div>
           <div class="inline-form">
             <select class="input" data-credit>${['Not requested', 'Requested', 'Received', 'Waived'].map((s) => '<option' + (s === a.credit.status ? ' selected' : '') + '>' + s + '</option>').join('')}</select>
             <input class="input" data-score placeholder="Score" value="${esc(a.credit.score || '')}" style="max-width:110px">
@@ -433,8 +454,8 @@
           ${a.credit.updatedAt ? '<div class="help">Updated ' + new Date(a.credit.updatedAt).toLocaleString() + ' by ' + esc(a.credit.by || '') + '</div>' : ''}
         </div>
 
-        <div class="subcard"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h4 style="margin:0">Eviction &amp; court records</h4><button class="btn small" data-eviction>Eviction check</button></div>
-          <div><span class="pill ${evictionClass(a.eviction)}">${esc(a.eviction.status)}</span> <span class="small">${esc(DREviction.summary(a.eviction))}</span></div>
+        <div class="subcard"><div class="subcard-head"><h4>Eviction &amp; court records <span class="pill ${evictionClass(a.eviction)}">${esc(a.eviction.status)}</span></h4><button class="btn small" data-eviction>Eviction check</button></div>
+          ${a.eviction.cases.length ? '<div class="small">' + esc(DREviction.summary(a.eviction)) + '</div>' : ''}
           ${a.eviction.cases.length ? '<ul class="small" style="margin:8px 0 0;padding-left:18px">' + a.eviction.cases.map((c) => '<li><b>' + esc(c.type) + '</b> · ' + esc(c.outcome) + (c.person ? ' · ' + esc(c.person) : '') + (c.court ? ' · ' + esc(c.court) : '') + (c.caseNo ? ' · #' + esc(c.caseNo) : '') + (c.filed ? ' · filed ' + esc(date(c.filed)) : '') + (c.notes ? '<br><span class="muted">' + esc(c.notes) + '</span>' : '') + '</li>').join('') + '</ul>' : ''}
           ${a.eviction.notes ? '<p class="small muted" style="margin:6px 0 0">' + esc(a.eviction.notes) + '</p>' : ''}
           <div class="inline-form" style="margin-top:8px"><label class="btn ghost small">Upload printout<input type="file" multiple class="hidden" data-eviction-up accept="application/pdf,image/*"></label>
