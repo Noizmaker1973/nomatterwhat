@@ -31,14 +31,14 @@
         ${form.documents.map((d) => `
           <div class="doc ${have(d.id).length ? 'done' : ''}">
             <div class="doc-head">
-              <div><b>${esc(d.label)} ${have(d.id).length ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Needed</span>' : ''}</b>
+              <div><b class="doc-title"><i class="dot${have(d.id).length ? ' ok' : d.req ? ' warn' : ''}" aria-hidden="true">${have(d.id).length ? '✓' : d.req ? '!' : ''}</i>${esc(d.label)} ${have(d.id).length ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Needed</span>' : ''}</b>
               ${d.help ? '<span class="small muted">' + esc(d.help) + '</span>' : ''}${d.download ? '<br><a class="small" href="' + esc(d.download) + '" target="_blank" download>⬇ Download the blank guarantor form (PDF)</a>' : ''}</div>
               <label class="btn secondary small">Upload<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden" data-doc="${d.id}"></label>
             </div>
-            ${have(d.id).length ? '<ul>' + have(d.id).map((f) => '<li><span>📄</span><span class="name">' + esc(f.name) + '</span><span class="muted small">' + new Date(f.uploadedAt).toLocaleDateString() + '</span></li>').join('') + '</ul>' : ''}
+            ${have(d.id).length ? '<ul>' + have(d.id).map((f) => '<li><span class="file-badge" aria-hidden="true">' + esc((f.name.split('.').pop() || 'file').slice(0, 4).toUpperCase()) + '</span><span class="name">' + esc(f.name) + '</span><span class="muted small">' + new Date(f.uploadedAt).toLocaleDateString() + '</span></li>').join('') + '</ul>' : ''}
           </div>`).join('')}
-        <div class="doc"><div class="doc-head"><div><b>Something else</b><span class="small muted">Any other document your agent requested.</span></div>
-          <label class="btn secondary small">Upload<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden" data-doc="other"></label></div></div>
+        ${form.documents.some((d) => d.id === 'other') ? '' : `<div class="doc"><div class="doc-head"><div><b>Something else</b><span class="small muted">Any other document your agent requested.</span></div>
+          <label class="btn secondary small">Upload<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden" data-doc="other"></label></div></div>`}
       </div>`;
     $app.insertAdjacentHTML('beforeend', DRGuarantor.html());
     DRGuarantor.bind($app, { applicantName: data.name, property: data.property, agent: data.agent });

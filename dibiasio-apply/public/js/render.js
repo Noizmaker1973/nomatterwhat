@@ -196,8 +196,10 @@
     refreshVisibility();
 
     return {
+      errorCount: 0,
       validate() {
         let first = null;
+        let count = 0;
         registry.forEach(({ field, scope: sc, el }) => {
           if (el.classList.contains('hidden') || !document.body.contains(el)) return;
           const v = sc[field.k];
@@ -208,8 +210,10 @@
           else if (!blank(v) && field.type === 'tel' && String(v).replace(/\D/g, '').length < 10) msg = 'Enter a full phone number.';
           el.classList.toggle('error', !!msg);
           el.querySelector('.err').textContent = msg;
+          if (msg) count++;
           if (msg && !first) first = el;
         });
+        this.errorCount = count;
         if (first) {
           first.scrollIntoView({ behavior: 'smooth', block: 'center' });
           const input = first.querySelector('input, select, textarea');

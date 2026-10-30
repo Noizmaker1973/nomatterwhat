@@ -92,13 +92,17 @@
     $app.innerHTML = '<div class="card"><h1>Link not available</h1><p>' + esc(msg || 'Something went wrong.') + '</p><a class="btn" href="/">Go to the application page</a></div>';
   }
 
+  const HOUSE_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>';
+  const fileSize = (n) => (n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+  const fileBadge = (name) => '<span class="file-badge" aria-hidden="true">' + esc((String(name).split('.').pop() || 'file').slice(0, 4).toUpperCase()) + '</span>';
+
   function propertyBanner() {
     const p = deal && deal.property;
     const agent = deal && deal.agent;
     if (!p && !agent) return '';
     const addr = p && [p.address, p.unit && 'Unit ' + p.unit, p.city].filter(Boolean).join(', ');
     const facts = p ? [p.rent && money(p.rent) + '/mo', p.moveIn && 'Move-in ' + DRUI.date(p.moveIn)].filter(Boolean).join(' · ') : '';
-    return '<div class="property"><div class="pin">' + (addr ? '⌂' : '✦') + '</div><div>' +
+    return '<div class="property"><div class="pin">' + (addr ? HOUSE_ICON : '✦') + '</div><div>' +
       (addr ? '<b>' + esc(addr) + '</b>' : '') +
       (facts ? '<span class="muted small">' + esc(facts) + '</span><br>' : '') +
       (agent ? '<span class="small">Your agent: <b style="display:inline">' + esc(agent.name) + '</b>' + (agent.phone ? ' · ' + esc(agent.phone) : '') + (agent.email ? ' · <a href="mailto:' + esc(agent.email) + '">' + esc(agent.email) + '</a>' : '') + '</span>' : '') +
@@ -167,7 +171,7 @@
     const bar = '<div class="progress" aria-hidden="true">' + steps.map((s, j) => '<span class="' + (j < i ? 'done' : j === i ? 'now' : '') + '"></span>').join('') + '</div>';
     $app.innerHTML = propertyBanner() + '<div class="card"><span class="step-label">Step ' + (i + 1) + ' of ' + steps.length + ' · ' + esc(form.short) + ' application</span>' + bar +
       '<h1>' + esc(step.title) + '</h1>' + (step.intro ? '<p class="muted">' + esc(step.intro) + '</p>' : '') +
-      '<div id="body"></div><div class="nav-row">' +
+      '<div id="step-error" class="notice bad hidden" role="alert"></div><div id="body"></div><div class="nav-row sticky-nav">' +
       (i > 0 ? '<button class="btn secondary" id="back">Back</button>' : '<span></span>') +
       (step.kind === 'sign' ? '<button class="btn" id="next">' + (edit ? 'Submit changes' : 'Submit application') + '</button>' : '<button class="btn" id="next">Continue</button>') +
       '</div></div>';
@@ -184,7 +188,14 @@
   }
 
   function next(step) {
-    if (controller && !controller.validate()) return;
+    const stepError = document.getElementById('step-error');
+    if (controller && !controller.validate()) {
+      const n = controller.errorCount;
+      stepError.textContent = 'Please fix ' + (n === 1 ? 'the highlighted field' : 'the ' + n + ' highlighted fields') + ' before continuing.';
+      stepError.classList.remove('hidden');
+      return;
+    }
+    stepError.classList.add('hidden');
     if (step.kind === 'sign') return submit();
     go(stepIndex + 1);
   }
@@ -198,7 +209,7 @@
       form.documents.map((d) => `
       <div class="doc" data-doc="${d.id}">
         <div class="doc-head">
-          <div><b>${esc(d.label)} ${received(d.id).length ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Required</span>' : '<span class="pill">If applicable</span>'}</b>
+          <div><b class="doc-title"><i class="dot${(state.files[d.id] || []).length || received(d.id).length ? ' ok' : d.req ? ' warn' : ''}" aria-hidden="true">${(state.files[d.id] || []).length || received(d.id).length ? '✓' : d.req ? '!' : ''}</i>${esc(d.label)} ${received(d.id).length ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Required</span>' : '<span class="pill">If applicable</span>'}</b>
           ${received(d.id).length ? '<span class="small muted">Already have: ' + received(d.id).map((f) => esc(f.name)).join(', ') + '. Add more only if needed.</span>' : ''}
           ${d.help ? '<span class="small muted">' + esc(d.help) + '</span>' : ''}${d.download ? '<br><a class="small" href="' + esc(d.download) + '" target="_blank" download>⬇ Download the blank guarantor form (PDF)</a>' : ''}</div>
           <label class="btn secondary small">Add file<input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.heic" class="hidden"></label>
@@ -213,7 +224,11 @@
       const draw = () => {
         const list = state.files[docType] || [];
         box.classList.toggle('done', list.length > 0);
-        box.querySelector('ul').innerHTML = list.map((file, i) => '<li><span>' + (file.type.startsWith('image/') ? '🖼️' : '📄') + '</span><span class="name">' + esc(file.name) + '</span><span class="muted small">' + (file.size / 1048576).toFixed(1) + ' MB</span><button type="button" class="btn ghost small" data-i="' + i + '">Remove</button></li>').join('');
+        const dot = box.querySelector('.dot');
+        const ok = list.length > 0 || received(docType).length > 0;
+        dot.className = 'dot' + (ok ? ' ok' : box.querySelector('.pill.warn') ? ' warn' : '');
+        dot.textContent = ok ? '✓' : box.querySelector('.pill.warn') ? '!' : '';
+        box.querySelector('ul').innerHTML = list.map((file, i) => '<li>' + fileBadge(file.name) + '<span class="name">' + esc(file.name) + '</span><span class="muted small">' + fileSize(file.size) + '</span><button type="button" class="btn ghost small" data-i="' + i + '">Remove</button></li>').join('');
         box.querySelectorAll('[data-i]').forEach((b) => b.onclick = () => { list.splice(Number(b.dataset.i), 1); draw(); });
       };
       const add = (fileList) => {
