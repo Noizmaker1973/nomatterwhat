@@ -161,3 +161,7 @@ table.deals tbody tr:hover td.go { color: var(--navy); }
   #nav button.link { margin-left: auto; }
   .toolbar select.input { flex: 1 1 140px; }
 }
+.btn.chip.chip-primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+.btn.chip.chip-primary:hover { background: var(--navy-2); }
+.req-list .consent { margin-bottom: 6px; padding: 10px 12px; align-items: center; }
+.req-list .consent span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

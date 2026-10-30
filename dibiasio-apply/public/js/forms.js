@@ -436,6 +436,70 @@
       applicantEmail: (a) => a.email,
       applicantPhone: (a) => a.phone,
     },
+
+    /* ------------------------------------------------------------------ */
+    // The landlord's Guarantor Form, filled out online by the guarantor.
+    guarantor: {
+      id: 'guarantor',
+      name: 'Guarantor',
+      short: 'Guarantor',
+      title: 'Guarantor Application',
+      blurb: 'For a parent, relative or other person who agrees to guarantee a tenant\'s lease. The tenant applies separately.',
+      contact: '',
+      minutes: 6,
+      incomeMultiple: 4,
+      isGuarantor: true,
+      steps: [
+        {
+          id: 'guarantor', title: 'About you',
+          intro: 'You are guaranteeing someone else\'s lease. Start with your own details.',
+          fields: [
+            f('name', 'Full legal name', 'text', { req: true, autocomplete: 'name' }),
+            half('phone', 'Phone', 'tel', { req: true }),
+            half('email', 'Email', 'email', { req: true }),
+            half('dob', 'Date of birth', 'date', { req: true }),
+            half('ssn', 'Social Security number', 'ssn', { req: true, help: 'Needed for the credit check.' }),
+            heading('Your address'),
+            ...address('cur', '', true),
+          ],
+        },
+        {
+          id: 'tenant', title: 'The lease you\'re guaranteeing',
+          intro: 'Tell us who you are guaranteeing and for which apartment.',
+          fields: [
+            f('tenantName', 'Tenant(s) you are guaranteeing', 'text', { req: true, placeholder: 'Full name of each tenant', help: 'If you guarantee more than one tenant, list each name.' }),
+            half('relationship', 'Your relationship to the tenant', 'text', { req: true, placeholder: 'e.g. Parent, Aunt, Friend' }),
+            half('aptAddress', 'Apartment address & unit #', 'text', { req: true, deal: 'addressUnit' }),
+          ],
+        },
+        {
+          id: 'income', title: 'Employment & income',
+          intro: 'Landlords usually look for a guarantor who earns about 4 times the monthly rent.',
+          fields: [
+            half('employer', 'Employer', 'text', { req: true, placeholder: 'Or "Self-employed" / "Retired"' }),
+            half('position', 'Position', 'text'),
+            f('employerAddress', 'Employer\'s address', 'text'),
+            half('employerPhone', 'Employer\'s phone', 'tel'),
+            half('howLong', 'How long have you worked there?', 'text', { placeholder: 'e.g. 6 years' }),
+            half('salary', 'Salary (before taxes)', 'money', { req: true }),
+            half('salaryPer', 'Per', 'select', { options: MONEY_PERIODS.slice().reverse(), req: true }),
+            half('otherIncome', 'Other monthly income', 'money'),
+            half('otherIncomeSource', 'Source of other income', 'text', { placeholder: 'e.g. Rental property, pension' }),
+          ],
+        },
+      ],
+      documents: [
+        { ...DOC_ID, help: 'Driver\'s license preferred, or passport / state ID. A clear phone photo is fine.' },
+        { id: 'pay_stubs', label: 'Proof of income', help: 'Two recent pay stubs, or your most recent tax return or benefit letter.', req: true },
+        { id: 'other', label: 'Other documents', help: 'Anything else your agent asked for.' },
+      ],
+      certification: 'In consideration of the lease for the premises listed in this application, I agree to be responsible for any financial obligation for rent, related services or damage payable under the lease or any extension or renewal of it, incurred by the tenant(s) named in this application, due to the lessor and its successors. I certify that the information I have provided is true and complete.',
+      dealSheet: [],
+      income: (a) => monthly(a.salary, a.salaryPer) + num(a.otherIncome),
+      applicantName: (a) => a.name,
+      applicantEmail: (a) => a.email,
+      applicantPhone: (a) => a.phone,
+    },
   };
 
   // Deal sheet fields every application shares; form-specific fields are appended.

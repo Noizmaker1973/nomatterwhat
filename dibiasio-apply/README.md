@@ -63,6 +63,25 @@ are turned upright and converted to PDF pages; Word documents get a placeholder 
 which uploads to include (a checkbox next to each document); the choice is saved and applies to
 both buttons. Credit reports start unticked. Any photo can also be opened alone as a PDF.
 
+## Guarantor applications
+
+Guarantors apply online like tenants. Every deal has its own **Guarantor link** (deal page →
+*Applicant link* card): the guarantor fills out the Guarantor Form online (their details, the tenant
+they're guaranteeing, employment and income), uploads ID and proof of income, and signs. Their
+application is added to the same deal, labelled *Guarantor*, with everything an applicant card has:
+original-form PDF (printed on the landlord's Guarantor Form, notary block left blank), landlord
+package, document requests, send-back, credit and eviction checks, status page and alerts. Their
+income is shown separately from household income, with a rent multiple (4× is the usual bar). For a
+guarantor who isn't tied to a deal yet, choose *Guarantor Application* under **New link**. The
+*Include the guarantor link* option on a new link, and the guarantor messages, point to the online
+form, with the PDF as a paper option.
+
+## Requesting documents
+
+**Request documents** on any applicant card opens a checklist of that application's documents
+(missing required ones pre-ticked), a box for anything custom and an optional note. Email, text or
+copy the message; it includes the applicant's private upload link.
+
 ## Guarantor form
 
 The blank guarantor form (`public/forms/guarantor-form.pdf`) is offered on every

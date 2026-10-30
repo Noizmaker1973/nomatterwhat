@@ -140,25 +140,35 @@ function dealSummary(deal) {
     createdAt: deal.createdAt, updatedAt: deal.updatedAt,
     applicants: store.appsForDeal(deal).map(appSummary),
     link: PUBLIC_URL + '/apply?d=' + deal.token,
+    // Guarantors who apply with this link join the same deal.
+    guarantorLink: deal.formType === 'guarantor' ? PUBLIC_URL + '/apply?d=' + deal.token : deal.guarantorToken ? PUBLIC_URL + '/apply?d=' + deal.guarantorToken : '',
     notes: deal.notes || [],
   };
 }
 function newDeal(formType, agentId, sheet) {
   return {
-    id: store.id(), token: store.id(12), formType, agentId: agentId || null, status: 'New',
+    id: store.id(), token: store.id(12), guarantorToken: store.id(12), formType, agentId: agentId || null, status: 'New',
     sheet: sheet || {}, appIds: [], activity: [], createdAt: new Date().toISOString(),
   };
+}
+
+// An applicant link is either the deal's own link or its guarantor link.
+function dealForLink(token) {
+  const deal = store.findDealByToken(token);
+  if (deal) return { deal, formType: deal.formType };
+  const g = store.findDealByGuarantorToken(token);
+  return g ? { deal: g, formType: 'guarantor' } : { deal: null };
 }
 
 /* ----------------------------- public API -------------------------------- */
 app.get('/api/public/config', (req, res) => res.json({ ...CONFIG, statuses: STATUSES, emailEnabled: notify.enabled }));
 
 app.get('/api/public/deal/:token', (req, res) => {
-  const deal = store.findDealByToken(req.params.token);
+  const { deal, formType } = dealForLink(req.params.token);
   if (!deal) return res.status(404).json({ error: 'This application link is no longer valid. Please contact your agent.' });
   const agent = deal.agentId && auth.get(deal.agentId);
   res.json({
-    formType: deal.formType,
+    formType,
     prefill: dealPrefill(deal.sheet),
     property: { address: deal.sheet.address || '', unit: deal.sheet.unit || '', city: deal.sheet.city || '', rent: deal.sheet.rent || '', moveIn: deal.sheet.moveIn || '' },
     agent: auth.publicAgent(agent),
@@ -179,9 +189,10 @@ async function submitApplication(req, res) {
   let payload;
   try { payload = JSON.parse(req.body.payload || '{}'); } catch { return res.status(400).json({ error: 'Invalid submission.' }); }
 
-  let deal = payload.dealToken ? store.findDealByToken(payload.dealToken) : null;
+  const link = payload.dealToken ? dealForLink(payload.dealToken) : { deal: null };
+  let deal = link.deal;
   if (payload.dealToken && !deal) return res.status(404).json({ error: 'This application link is no longer valid.' });
-  const formType = deal ? deal.formType : payload.form;
+  const formType = deal ? link.formType : payload.form;
   const form = FORMS[formType];
   if (!form) return res.status(400).json({ error: 'Unknown application type.' });
 
@@ -234,7 +245,7 @@ async function submitApplication(req, res) {
     ok: true,
     confirmation: appRecord.id.slice(0, 8).toUpperCase(),
     statusUrl: PUBLIC_URL + '/status?t=' + appRecord.uploadToken,
-    coApplicantUrl: PUBLIC_URL + '/apply?d=' + deal.token,
+    coApplicantUrl: PUBLIC_URL + '/apply?d=' + (formType === 'guarantor' && deal.guarantorToken ? deal.guarantorToken : deal.token),
     creditScreeningUrl: CONFIG.creditScreeningUrl,
   });
 }
@@ -480,6 +491,8 @@ app.post('/api/deals', (req, res) => {
 app.get('/api/deals/:id', (req, res) => {
   const deal = store.getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'Not found.' });
+  // Deals created before guarantor links existed get one now.
+  if (!deal.guarantorToken && deal.formType !== 'guarantor') { deal.guarantorToken = store.id(12); store.saveDeal(deal); }
   const out = dealSummary(deal);
   out.activity = deal.activity || [];
   out.applicants = store.appsForDeal(deal).map((a) => ({
@@ -611,8 +624,8 @@ app.get('/api/apps/:id/original.pdf', async (req, res, next) => {
 });
 
 // Landlord package: original form(s) followed by every uploaded document, as one PDF.
-function docLabels(form) {
-  return Object.fromEntries(form.documents.map((d) => [d.id, d.label]).concat([['other', 'Other document'], ['credit_report', 'Credit report'], ['eviction_check', 'Court records search']]));
+function docLabels(forms) {
+  return Object.fromEntries(forms.flatMap((form) => form.documents.map((d) => [d.id, d.label])).concat([['other', 'Other document'], ['credit_report', 'Credit report'], ['eviction_check', 'Court records search']]));
 }
 async function sendPackage(res, req, deal, apps) {
   const form = FORMS[deal.formType];
@@ -620,7 +633,7 @@ async function sendPackage(res, req, deal, apps) {
     formType: deal.formType,
     sheet: deal.sheet,
     agent: deal.agentId && auth.get(deal.agentId),
-    docLabels: docLabels(form),
+    docLabels: docLabels([...new Set([deal.formType, ...apps.map((a) => a.formType)])].map((t) => FORMS[t])),
     applicants: apps.map((a) => ({ app: a, application: store.openAnswers(a), files: a.files.filter(inPackage).map((meta) => ({ meta, buffer: store.readFile(a.id, meta.id) })) })),
   });
   const who = apps.map((a) => a.summary.name).join(', ');

@@ -320,3 +320,57 @@ test('agents record eviction / court-record check results', async () => {
   const full = (await call('/api/deals/' + deal.id)).body;
   assert.ok(full.activity.some((x) => /Eviction check for .*Records found \(2 cases\)/.test(x.text)));
 });
+
+const guarantorAnswers = (extra = {}) => ({
+  name: 'Maria Rivera', phone: '(508) 555-0144', email: 'maria@example.com', dob: '1965-03-02', ssn: '222-33-4444',
+  curStreet: '14 Elm Road', curCity: 'Framingham', curState: 'MA', curZip: '01701',
+  tenantName: 'Jordan Rivera', relationship: 'Mother', employer: 'Framingham Public Schools', salary: '98000', salaryPer: 'per year', ...extra,
+});
+
+test('guarantor link adds a guarantor application to the same deal', async () => {
+  const deal = (await call('/api/deals', { method: 'POST', json: { formType: 'standard', sheet: { address: '45 Moody Street', unit: '3', city: 'Waltham', rent: '2650' } } })).body;
+  assert.match(deal.guarantorLink, /\/apply\?d=/);
+  assert.notEqual(deal.guarantorLink, deal.link);
+  const gToken = new URL(deal.guarantorLink).searchParams.get('d');
+
+  const pub = (await call('/api/public/deal/' + gToken, { auth: false })).body;
+  assert.equal(pub.formType, 'guarantor');
+  assert.equal(pub.prefill.addressUnit, '45 Moody Street, Unit 3, Waltham');
+
+  // A tenant on the normal link, then the guarantor on theirs.
+  assert.equal((await submit(application({ dealToken: deal.token, form: 'standard', answers: {
+    name: 'Jordan Rivera', phone: '(617) 555-0100', email: 'jr@example.com', over18: 'Yes', curStreet: '2 Oak', curCity: 'Marlboro', curState: 'MA', curZip: '01752', curFrom: '2020-05-01',
+    presLandlord: 'L', presLandlordPhone: '(508) 555-0102', employer: 'Acme', occupation: 'Engineer', salary: '60000', salaryPer: 'per year',
+    refName: 'R', refPhone: '(508) 555-0103', emergencyName: 'E', emergencyPhone: '(508) 555-0104', occupants: '1', adults: '1', pets: '0', felony: 'No',
+  } }))).status, 200);
+  const missing = await submit({ dealToken: gToken, answers: guarantorAnswers({ tenantName: '' }), signature: { typedName: 'Maria Rivera', image: 'data:image/png;base64,iVBORw0KGgo=' }, consents: { terms: true, credit: true, esign: true } });
+  assert.equal(missing.status, 400);
+  assert.ok(missing.body.missing.some((m) => /Tenant/.test(m)));
+  const sub = await submit({ dealToken: gToken, answers: guarantorAnswers(), signature: { typedName: 'Maria Rivera', image: 'data:image/png;base64,iVBORw0KGgo=' }, consents: { terms: true, credit: true, esign: true } });
+  assert.equal(sub.status, 200, JSON.stringify(sub.body));
+  assert.ok(sub.body.coApplicantUrl.endsWith(gToken), 'a second guarantor gets the guarantor link');
+
+  const full = (await call('/api/deals/' + deal.id)).body;
+  assert.equal(full.applicants.length, 2);
+  const g = full.applicants.find((a) => a.formType === 'guarantor');
+  assert.equal(g.name, 'Maria Rivera');
+  assert.equal(g.monthlyIncome, 8167);
+  assert.equal(g.application.answers.aptAddress, '45 Moody Street, Unit 3, Waltham', 'apartment prefilled from the deal');
+  // Same tools as any applicant: status page, original form, landlord package, eviction check.
+  const token = new URL(sub.body.statusUrl).searchParams.get('t');
+  assert.equal((await call('/api/public/status/' + token, { auth: false })).body.formType, 'guarantor');
+  const pdf = await call('/api/apps/' + g.id + '/original.pdf');
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.body.subarray(0, 4).toString(), '%PDF');
+  const pkg = await call('/api/deals/' + deal.id + '/package.pdf');
+  assert.equal(pkg.status, 200, 'package mixes the standard form and the guarantor form');
+  assert.equal((await call('/api/apps/' + g.id + '/eviction', { method: 'PUT', json: { status: 'No records found' } })).status, 200);
+});
+
+test('a guarantor-only link works like any other application link', async () => {
+  const deal = (await call('/api/deals', { method: 'POST', json: { formType: 'guarantor', sheet: { address: '8 Main Street', city: 'Marlboro' } } })).body;
+  assert.equal(deal.guarantorLink, deal.link);
+  assert.equal((await call('/api/public/deal/' + deal.token, { auth: false })).body.formType, 'guarantor');
+  const sub = await submit({ dealToken: deal.token, answers: guarantorAnswers(), signature: { typedName: 'Maria Rivera', image: 'data:image/png;base64,iVBORw0KGgo=' }, consents: { terms: true, credit: true, esign: true } });
+  assert.equal(sub.status, 200, JSON.stringify(sub.body));
+});

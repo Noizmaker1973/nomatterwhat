@@ -9,6 +9,7 @@
 
   function draw() {
     const form = FORMS[deal.formType];
+    const dealForm = form;
     const reveal = document.getElementById('ssn').checked;
     const showSheet = document.getElementById('dealsheet').checked;
     const showCommission = document.getElementById('commission').checked;
@@ -30,10 +31,11 @@
       </dl></section>
       ${showSheet ? '<section class="block"><h2>Deal sheet</h2>' + summaryHtml(sheetFields, deal.sheet, { skipBlank: true }) + '</section>' : ''}
       ${deal.applicants.map((a) => {
+        const form = FORMS[a.formType] || dealForm;
         const app = a.application;
         const sig = app.signature || {};
         return `<div class="applicant">
-          <section class="block"><h2>Applicant: ${esc(a.name)}</h2>
+          <section class="block"><h2>${form.isGuarantor ? 'Guarantor' : 'Applicant'}: ${esc(a.name)}</h2>
             ${form.steps.map((s) => '<h3 style="margin-top:12px">' + esc(s.title) + '</h3>' + summaryHtml(s.fields, app.answers, { revealSsn: reveal })).join('')}
           </section>
           <section class="block"><h2>Documents received</h2><dl class="kv">

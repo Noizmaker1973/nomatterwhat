@@ -277,7 +277,35 @@ function standard({ a, sig, sheet, app }) {
   return ops;
 }
 
-const MAPS = { beantown, hamilton, standard };
+// The Guarantor Form is a one-page scan; positions were measured on its underlines.
+// The notary block is left blank for the landlord to complete if they want it.
+function guarantor({ a, sig, sheet }) {
+  const ops = [];
+  const t = (x, y, text, w, size = 10) => ops.push({ p: 1, x, y, t: text, w, size });
+  const premises = sheet.address ? [sheet.address, sheet.unit && 'Unit ' + sheet.unit, sheet.city].filter(Boolean).join(', ') : a.aptAddress;
+  const salary = money(a.salary) && '$' + money(a.salary) + ' ' + String(a.salaryPer || '').replace('every 2 weeks', 'biweekly');
+  t(124, 143, premises, 296);
+  t(118, 164, a.name, 268);
+  t(104, 185, [a.curCity, a.curState].filter(Boolean).join(', '), 152);
+  t(300, 226, a.tenantName, 112);
+  ops.push({ p: 1, x: 300, y: 244, w: 170, h: 22, sig: true });
+  // Guarantor's credit information
+  t(186, 512, a.name, 172); t(382, 512, a.ssn, 92);
+  t(146, 527, a.tenantName, 328);
+  t(196, 540, a.relationship, 280);
+  t(198, 554, a.curStreet, 280);
+  t(198, 567, [a.curCity, a.curState, a.curZip].filter(Boolean).join(', '), 280);
+  t(198, 581, a.phone, 210);
+  t(200, 594, a.employer, 276);
+  t(198, 608, a.employerAddress, 278);
+  t(204, 622, a.employerPhone, 210);
+  t(136, 635, a.position, 186); t(388, 635, a.howLong, 90);
+  t(126, 649, salary, 150, 9);
+  t(366, 649, [money(a.otherIncome) && '$' + money(a.otherIncome) + '/mo', a.otherIncomeSource].filter(Boolean).join(' '), 116, 8);
+  return ops;
+}
+
+const MAPS = { beantown, hamilton, standard, guarantor };
 
 /* ------------------------------- drawing ------------------------------- */
 // The built-in Helvetica only has Western European letters (WinAnsi), so keep

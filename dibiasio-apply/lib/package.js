@@ -80,7 +80,8 @@ async function buildPackage({ formType, applicants, sheet, agent, docLabels }) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (const { app, application, files } of applicants) {
-    const form = await PDFDocument.load(await fillOriginal({ formType, app, application, sheet, agent }));
+    // Each applicant's own form: a deal can mix tenants and guarantors.
+    const form = await PDFDocument.load(await fillOriginal({ formType: app.formType || formType, app, application, sheet, agent }));
     (await doc.copyPages(form, form.getPageIndices())).forEach((p) => doc.addPage(p));
     const ordered = files
       .filter(({ meta }) => inPackage(meta))

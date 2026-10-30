@@ -50,7 +50,8 @@
   const missingDocs = (form, applicant) => form.documents.filter((d) => d.req && !applicant.files.some((f) => f.docType === d.id));
   const firstName = (a) => (a.name || '').split(' ')[0];
   const creditMsg = (a) => 'Hi ' + firstName(a) + ', the landlord needs a credit report for your application. Please complete it here: ' + config.creditScreeningUrl + ' — ' + me.name;
-  const docsMsg = (form, a) => 'Hi ' + firstName(a) + ', to finish your application please upload: ' + missingDocs(form, a).map((d) => d.label).join(', ') + '. Use your private link: ' + a.statusUrl + ' — ' + me.name;
+  const docsMsg = (a, items, note) => 'Hi ' + firstName(a) + ', to finish your application please upload: ' + items.join(', ') + '.' + (note ? '\n\n' + note : '') +
+    '\n\nUse your private upload link (no login needed): ' + a.statusUrl + ' — ' + me.name;
   const reopenMsg = (a) => 'Hi ' + firstName(a) + ', please update your rental application' + (a.reopened && a.reopened.note ? ': ' + a.reopened.note : '.') +
     '\n\nYour answers are saved. Open this link, make the changes, then sign again and submit: ' + a.editUrl + ' — ' + me.name;
   const smsLink = (text) => 'sms:?&body=' + encodeURIComponent(text);
@@ -208,11 +209,12 @@
       document.getElementById('rows').innerHTML = rows.length ? `<table class="deals"><thead><tr><th>Property</th><th>Applicants</th><th>Application</th><th>Docs</th><th>Status</th><th>Agent</th><th>Updated</th><th></th></tr></thead><tbody>
         ${rows.map((d) => {
           const form = FORMS[d.formType];
-          const missing = d.applicants.reduce((n, a) => n + missingDocs(form, a).length, 0);
+          const missing = d.applicants.reduce((n, a) => n + missingDocs(FORMS[a.formType] || form, a).length, 0);
+          const guarantors = d.applicants.filter((a) => a.formType === 'guarantor' && d.formType !== 'guarantor').length;
           return `<tr data-id="${d.id}">
             <td data-l="Property"><b>${esc(propertyLine(d.sheet) || 'No property yet')}</b>${d.sheet.rent ? '<br><span class="muted small">' + money(d.sheet.rent) + '/mo</span>' : ''}${d.notes.length ? '<span class="note-snippet" title="' + esc(d.notes[0].text.slice(0, 200)) + '">📝 ' + esc(d.notes[0].text) + '</span>' : ''}</td>
-            <td data-l="Applicants">${d.applicants.length ? d.applicants.map((a) => esc(a.name)).join('<br>') : '<span class="muted">Waiting for applicant</span>'}</td>
-            <td data-l="Application">${esc(form.short)}</td>
+            <td data-l="Applicants">${d.applicants.length ? d.applicants.map((a) => esc(a.name) + (a.formType === 'guarantor' && d.formType !== 'guarantor' ? ' <span class="muted small">(guarantor)</span>' : '')).join('<br>') : '<span class="muted">Waiting for applicant</span>'}</td>
+            <td data-l="Application">${esc(form.short)}${guarantors ? '<br><span class="muted small">+ ' + guarantors + ' guarantor' + (guarantors > 1 ? 's' : '') + '</span>' : ''}</td>
             <td data-l="Docs">${!d.applicants.length ? '—' : missing ? '<span class="pill warn">' + missing + ' missing</span>' : '<span class="pill ok">Complete</span>'}</td>
             <td data-l="Status">${pill(d.status)}${d.applicants.some((a) => a.reopened) ? ' <span class="pill warn" title="Waiting for the applicant to update their application">Sent back</span>' : ''}</td>
             <td data-l="Agent" class="nowrap">${esc(d.agentName)}</td>
@@ -257,13 +259,21 @@
 
   function linkMessage(deal, extra) {
     const where = propertyLine(deal.sheet);
+    if (deal.formType === 'guarantor') return guarantorLinkMessage(deal, deal.link);
     return 'Hi! Here is your rental application' + (where ? ' for ' + where : '') + ' with Dibiasio Realty. Fill it out, sign, and upload your ID and pay stubs here: ' + deal.link + (extra ? '\n\n' + extra : '') + ' — ' + me.name;
   }
 
+  const guarantorLinkMessage = (deal, link) => {
+    const where = propertyLine(deal.sheet);
+    return 'Hi! Thank you for agreeing to be a guarantor' + (where ? ' for the apartment at ' + where : '') + '. Please fill out the guarantor application, sign it, and upload your ID and proof of income here: ' + link + ' — ' + me.name;
+  };
   const guarantorUrl = () => location.origin + DR.GUARANTOR_URL;
-  const guarantorNote = (uploadUrl) => 'If you need a guarantor, here is the Guarantor Form: ' + guarantorUrl() +
-    ' Your guarantor fills it out and signs it. Then upload it ' + (uploadUrl ? 'here: ' + uploadUrl : 'with your application') + ' or reply with a copy.';
-  const guarantorMessage = (name, uploadUrl) => 'Hi' + (name ? ' ' + name : '') + ', ' + guarantorNote(uploadUrl) + ' — ' + me.name;
+  // With a deal's guarantor link, the guarantor applies online; the PDF stays as a paper option.
+  const guarantorNote = (uploadUrl, glink) => (glink
+    ? 'If you need a guarantor, send them this link to fill out and sign the guarantor application online: ' + glink + ' (If they prefer paper, here is the Guarantor Form: ' + guarantorUrl() + ' Upload the signed copy ' + (uploadUrl ? 'here: ' + uploadUrl : 'with your application') + '.)'
+    : 'If you need a guarantor, here is the Guarantor Form: ' + guarantorUrl() + ' Your guarantor fills it out and signs it. Then upload it ' + (uploadUrl ? 'here: ' + uploadUrl : 'with your application') + ' or reply with a copy.');
+  const guarantorMessage = (name, uploadUrl, glink) => 'Hi' + (name ? ' ' + name : '') + ', ' + guarantorNote(uploadUrl, glink) + ' — ' + me.name;
+  const linkSubject = (deal) => (deal.formType === 'guarantor' ? 'Guarantor application' : 'Your rental application');
 
   function renderLinkCreated(deal) {
     let msg = linkMessage(deal);
@@ -278,16 +288,16 @@
         <button class="btn secondary" id="cpm">Copy message</button>
         <a class="btn ghost" href="#deal/${deal.id}">Open deal →</a>
       </div>
-      <label class="small" style="display:block;margin-top:14px"><input type="checkbox" id="with-guarantor"> Include the guarantor form (if they'll need a guarantor)</label>
+      ${deal.formType === 'guarantor' ? '' : '<label class="small" style="display:block;margin-top:14px"><input type="checkbox" id="with-guarantor"> Include the guarantor link (if they\'ll need a guarantor)</label>'}
       </div>`;
-    const withGuarantor = document.getElementById('with-guarantor');
+    const withGuarantor = document.getElementById('with-guarantor') || { checked: false };
     withGuarantor.onchange = () => {
-      msg = linkMessage(deal, withGuarantor.checked ? guarantorNote() : '');
+      msg = linkMessage(deal, withGuarantor.checked ? guarantorNote('', deal.guarantorLink) : '');
       document.getElementById('sms').href = smsLink(msg);
     };
     document.getElementById('cp').onclick = () => copy(deal.link);
     document.getElementById('cpm').onclick = () => copy(msg, 'Message');
-    document.getElementById('em').onclick = () => emailCompose({ subject: 'Your rental application', text: msg, dealId: deal.id, attachGuarantor: withGuarantor.checked });
+    document.getElementById('em').onclick = () => emailCompose({ subject: linkSubject(deal), text: msg, dealId: deal.id, attachGuarantor: withGuarantor.checked });
   }
 
   /* -------------------------------- deal -------------------------------- */
@@ -296,9 +306,12 @@
     const form = FORMS[deal.formType];
     const sheet = JSON.parse(JSON.stringify(deal.sheet || {}));
     const rent = num(sheet.finalRent || sheet.rent);
-    const income = deal.applicants.reduce((n, a) => n + (a.monthlyIncome || 0), 0);
+    // Guarantors back the lease but don't count toward household income.
+    const isGuar = (a) => (FORMS[a.formType] || form).isGuarantor;
+    const income = deal.applicants.filter((a) => !isGuar(a) || form.isGuarantor).reduce((n, a) => n + (a.monthlyIncome || 0), 0);
+    const guarIncome = form.isGuarantor ? 0 : deal.applicants.filter(isGuar).reduce((n, a) => n + (a.monthlyIncome || 0), 0);
     const ratio = rent ? income / rent : 0;
-    const docsMissing = deal.applicants.reduce((n, a) => n + missingDocs(form, a).length, 0);
+    const docsMissing = deal.applicants.reduce((n, a) => n + missingDocs(FORMS[a.formType] || form, a).length, 0);
     const credits = deal.applicants.map((a) => a.credit.status);
 
     $app.innerHTML = `
@@ -317,6 +330,7 @@
         <div class="metric"><span>Rent</span><b>${rent ? money(rent) : '—'}</b></div>
         <div class="metric"><span>Income / mo</span><b>${income ? money(income) : '—'}</b></div>
         <div class="metric"><span>Income ÷ rent</span><b>${ratio ? ratio.toFixed(2) + '×' : '—'}</b> ${ratio ? (ratio >= form.incomeMultiple ? '<span class="pill ok">meets ' + form.incomeMultiple + '×</span>' : '<span class="pill warn">under ' + form.incomeMultiple + '×</span>') : ''}</div>
+        ${guarIncome ? '<div class="metric"><span>Guarantor income / mo</span><b>' + money(guarIncome) + '</b>' + (rent ? '<span class="pill ' + (guarIncome / rent >= 4 ? 'ok' : 'warn') + '">' + (guarIncome / rent).toFixed(1) + '× rent</span>' : '') + '</div>' : ''}
         <div class="metric ${deal.applicants.length ? (docsMissing ? 'm-warn' : 'm-ok') : ''}"><span>Documents</span><b>${deal.applicants.length ? (docsMissing ? docsMissing + ' missing' : 'Complete') : '—'}</b></div>
         <div class="metric"><span>Credit</span><b class="b-sm">${tally(credits)}</b></div>
         <div class="metric"><span>Eviction check</span><b class="b-sm">${tally(deal.applicants.map((a) => a.eviction.status))}</b></div>
@@ -336,10 +350,13 @@
             <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn small" id="note-add">Add note</button></div>
             <ul class="activity" id="notes" style="margin-top:10px"></ul>
           </div>
-          <div class="card"><h3>Applicant link</h3><p class="muted small">Send to co-applicants — everyone who applies with it is added here.</p>
+          <div class="card"><h3>${form.isGuarantor ? 'Guarantor link' : 'Applicant link'}</h3><p class="muted small">${form.isGuarantor ? 'Send to the guarantor. Everyone who fills it out is added here.' : 'Send to co-applicants — everyone who applies with it is added here.'}</p>
             <div class="copy-row"><input class="input" readonly value="${esc(deal.link)}"><button class="btn secondary small" id="cp-link">Copy</button></div>
             <div class="chips" style="margin-top:10px"><a class="btn chip" href="${esc(smsLink(linkMessage(deal)))}">💬 Text</a><button class="btn chip" id="em-link">✉ Email</button></div>
-            <h3 style="margin-top:18px">Guarantor form</h3><p class="muted small">Blank form for applicants who need a guarantor.</p>
+            ${deal.guarantorLink && !form.isGuarantor ? `<h3 style="margin-top:18px">Guarantor link</h3><p class="muted small">For a parent or relative guaranteeing the lease. They fill out the guarantor form online, sign it and upload their ID and income, and it's added to this deal.</p>
+            <div class="copy-row"><input class="input" readonly value="${esc(deal.guarantorLink)}"><button class="btn secondary small" id="cp-glink">Copy</button></div>
+            <div class="chips" style="margin-top:10px"><a class="btn chip" href="${esc(smsLink(guarantorLinkMessage(deal, deal.guarantorLink)))}">💬 Text</a><button class="btn chip" id="em-glink">✉ Email</button></div>` : ''}
+            <h3 style="margin-top:18px">Paper guarantor form</h3><p class="muted small">The blank PDF, if a guarantor would rather print and sign it.</p>
             <div class="chips"><a class="btn chip" href="${esc(DR.GUARANTOR_URL)}" target="_blank">View</a><button class="btn chip" id="em-guar">✉ Email form</button><button class="btn chip" id="cp-guar">⧉ Copy link</button></div>
           </div>
           <div class="card"><h3>Activity</h3><ul class="activity">${(deal.activity || []).map((a) => '<li><time>' + new Date(a.at).toLocaleString() + ' · ' + esc(a.who) + '</time>' + esc(a.text) + '</li>').join('') || '<li class="muted">Nothing yet.</li>'}</ul></div>
@@ -362,9 +379,13 @@
     document.getElementById('status').onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { status: e.target.value } }); toast('Status updated'); renderDeal(id); };
     document.getElementById('assign').onchange = async (e) => { await api('/api/deals/' + id, { method: 'PUT', body: { agentId: e.target.value } }); toast('Agent updated'); renderDeal(id); };
     document.getElementById('cp-link').onclick = () => copy(deal.link);
-    document.getElementById('em-link').onclick = () => emailCompose({ subject: 'Your rental application', text: linkMessage(deal), dealId: deal.id });
-    document.getElementById('em-guar').onclick = () => emailCompose({ subject: 'Guarantor form for your rental application', text: guarantorMessage('', deal.link), dealId: deal.id, attachGuarantor: true });
+    document.getElementById('em-link').onclick = () => emailCompose({ subject: linkSubject(deal), text: linkMessage(deal), dealId: deal.id });
+    document.getElementById('em-guar').onclick = () => emailCompose({ subject: 'Guarantor form for your rental application', text: guarantorMessage('', deal.link, deal.guarantorLink), dealId: deal.id, attachGuarantor: true });
     document.getElementById('cp-guar').onclick = () => copy(guarantorUrl(), 'Guarantor form link');
+    const cpg = document.getElementById('cp-glink');
+    if (cpg) cpg.onclick = () => copy(deal.guarantorLink, 'Guarantor link');
+    const emg = document.getElementById('em-glink');
+    if (emg) emg.onclick = () => emailCompose({ subject: 'Guarantor application' + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: guarantorLinkMessage(deal, deal.guarantorLink), dealId: deal.id });
     const del = document.getElementById('del');
     if (del) del.onclick = async () => {
       if (!confirm('Permanently delete this deal and all of its applications and documents?')) return;
@@ -396,13 +417,17 @@
     };
   }
 
-  function renderApplicants(deal, form) {
+  function renderApplicants(deal, dealForm) {
     const box = document.getElementById('applicants');
     if (!deal.applicants.length) {
       box.innerHTML = '<div class="card empty">No one has applied with this link yet. Send it to your applicant and you\'ll see their application here.</div>';
       return;
     }
-    box.innerHTML = deal.applicants.map((a, i) => {
+    let tenantNo = 0;
+    box.innerHTML = deal.applicants.map((a) => {
+      // A deal can mix tenants and guarantors, each on their own form.
+      const form = FORMS[a.formType] || dealForm;
+      const label = form.isGuarantor ? 'Guarantor' : 'Applicant ' + (++tenantNo);
       const app = a.application;
       const docs = form.documents.concat([{ id: 'other', label: 'Other documents' }, { id: 'credit_report', label: 'Credit report' }, { id: 'eviction_check', label: 'Court records search' }]);
       const filesFor = (id) => a.files.filter((f) => f.docType === id || (id === 'other' && !docs.some((d) => d.id === f.docType)));
@@ -410,7 +435,7 @@
       return `<div class="card" data-app="${a.id}">
         <div class="applicant-head">
           <div class="avatar" aria-hidden="true">${esc(initials(a.name))}</div>
-          <div class="ah-main"><span class="step-label">Applicant ${i + 1}</span>
+          <div class="ah-main"><span class="step-label">${label}</span>
             <h2>${esc(a.name)} ${missing.length ? '<span class="pill warn">' + missing.length + ' doc' + (missing.length > 1 ? 's' : '') + ' missing</span>' : '<span class="pill ok">Docs complete</span>'}</h2>
             <div class="ah-contact">${a.email ? '<a href="mailto:' + esc(a.email) + '">' + esc(a.email) + '</a>' : ''}${a.phone ? '<a href="tel:' + esc(a.phone) + '">' + esc(a.phone) + '</a>' : ''}<span>${a.monthlyIncome ? money(a.monthlyIncome) + '/mo income' : 'Income not stated'}</span></div>
             <div class="muted small">Submitted ${new Date(a.createdAt).toLocaleString()}${a.resubmittedAt ? ' · <b>updated ' + new Date(a.resubmittedAt).toLocaleString() + '</b>' : ''}</div></div>
@@ -435,8 +460,8 @@
         </div>
         <h4 class="section-label">Message applicant</h4>
         <div class="chips">
-          ${missing.length ? '<button class="btn chip" data-email-docs>✉ Ask for missing docs</button><button class="btn chip" data-req-docs>⧉ Copy docs request</button>' : ''}
-          ${a.email ? '<button class="btn chip" data-email-app>✉ Email applicant</button><button class="btn chip" data-email-guar>✉ Send guarantor form</button>' : ''}
+          <button class="btn chip chip-primary" data-request-docs>📄 Request documents${missing.length ? ' (' + missing.length + ' missing)' : ''}</button>
+          ${a.email ? '<button class="btn chip" data-email-app>✉ Email ' + (form.isGuarantor ? 'guarantor' : 'applicant') + '</button>' + (form.isGuarantor ? '' : '<button class="btn chip" data-email-guar>✉ Send guarantor form</button>') : ''}
           <button class="btn chip" data-status-link>⧉ Copy upload link</button>
         </div>
 
@@ -471,16 +496,14 @@
     }).join('');
 
     deal.applicants.forEach((a) => {
+      const form = FORMS[a.formType] || dealForm;
       const card = box.querySelector('[data-app="' + a.id + '"]');
       const q = (sel) => card.querySelector(sel);
       q('[data-reveal]').onchange = (e) => { q('[data-full]').innerHTML = fullApplicationHtml(form, a.application, e.target.checked); };
       q('[data-up]').onchange = (e) => uploadFor(a.id, q('[data-up-type]').value, e.target.files, deal.id);
       q('[data-credit-up]').onchange = (e) => uploadFor(a.id, 'credit_report', e.target.files, deal.id);
       q('[data-status-link]').onclick = () => copy(a.statusUrl, 'Upload link');
-      const rd = q('[data-req-docs]');
-      if (rd) rd.onclick = () => copy(docsMsg(form, a), 'Message');
-      const ed = q('[data-email-docs]');
-      if (ed) ed.onclick = () => emailCompose({ to: a.email, subject: 'Documents needed for your rental application', text: docsMsg(form, a), dealId: deal.id });
+      q('[data-request-docs]').onclick = () => requestDocs(form, a, deal.id);
       const pkgCount = () => { q('[data-pkg-count]').textContent = a.files.filter((f) => f.inPackage).length + ' of ' + a.files.length + ' included'; };
       pkgCount();
       card.querySelectorAll('[data-pkg]').forEach((box) => box.onchange = async () => {
@@ -493,7 +516,7 @@
         } catch (e) { box.checked = !box.checked; toast(e.message); }
       });
       const eg = q('[data-email-guar]');
-      if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: 'Guarantor form for your rental application', text: guarantorMessage(firstName(a), a.statusUrl), dealId: deal.id, attachGuarantor: true });
+      if (eg) eg.onclick = () => emailCompose({ to: a.email, subject: 'Guarantor form for your rental application', text: guarantorMessage(firstName(a), a.statusUrl, deal.guarantorLink), dealId: deal.id, attachGuarantor: true });
       const ea = q('[data-email-app]');
       if (ea) ea.onclick = () => emailCompose({ to: a.email, subject: 'Your rental application' + (propertyLine(deal.sheet) ? ' – ' + propertyLine(deal.sheet) : ''), text: 'Hi ' + firstName(a) + ',\n\n\n\n' + me.name + '\nDibiasio Realty' + (me.phone ? '\n' + me.phone : ''), dealId: deal.id });
       const rb = q('[data-reopen]');
@@ -554,6 +577,48 @@
       toast('Uploaded');
     } catch (e) { toast(e.message); }
     renderDeal(dealId);
+  }
+
+  /* ------------------------- requesting documents ------------------------- */
+  // Pick which documents to ask for (missing required ones are pre-ticked), add
+  // anything custom, then email, text or copy the request with the upload link.
+  function requestDocs(form, a, dealId) {
+    const have = (id) => a.files.some((f) => f.docType === id);
+    const docs = form.documents.filter((d) => d.id !== 'other');
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = '<div class="box" style="text-align:left;width:min(560px,100%);max-height:92vh;overflow:auto">' +
+      '<h3 style="margin-top:0">Request documents from ' + esc(a.name) + '</h3>' +
+      '<p class="small muted">Tick what you need. The message includes their private upload link, so they can send everything from their phone.</p>' +
+      '<div class="req-list">' + docs.map((d) => '<label class="consent"><input type="checkbox" value="' + esc(d.label) + '"' + (d.req && !have(d.id) ? ' checked' : '') + '><span><b>' + esc(d.label) + '</b> ' +
+        (have(d.id) ? '<span class="pill ok">Received</span>' : d.req ? '<span class="pill warn">Missing</span>' : '') + '</span></label>').join('') + '</div>' +
+      '<label class="lbl" for="req-other" style="display:block;margin-top:10px">Anything else? <span class="muted small">(one per line)</span></label>' +
+      '<textarea class="input" id="req-other" rows="2" placeholder="e.g. Bank letter showing savings&#10;Most recent pay stub (October)" style="resize:vertical"></textarea>' +
+      '<label class="lbl" for="req-note" style="display:block;margin-top:10px">Note <span class="muted small">(optional)</span></label>' +
+      '<input class="input" id="req-note" placeholder="e.g. The landlord needs these by Friday.">' +
+      '<div id="req-err" class="notice bad hidden" style="margin-top:10px"></div>' +
+      '<div class="chips" style="margin-top:16px">' + (a.email ? '<button class="btn" data-send="email">✉ Email request</button>' : '') +
+      '<button class="btn secondary" data-send="text">💬 Text</button><button class="btn secondary" data-send="copy">⧉ Copy message</button>' +
+      '<button class="btn ghost" data-cancel style="margin-left:auto">Cancel</button></div></div>';
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('[data-cancel]').onclick = close;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('[data-send]').forEach((b) => b.onclick = () => {
+      const items = [...overlay.querySelectorAll('.req-list input:checked')].map((i) => i.value)
+        .concat(overlay.querySelector('#req-other').value.split('\n').map((x) => x.trim()).filter(Boolean));
+      if (!items.length) {
+        const err = overlay.querySelector('#req-err');
+        err.textContent = 'Tick at least one document or type one in.';
+        err.classList.remove('hidden');
+        return;
+      }
+      const text = docsMsg(a, items, overlay.querySelector('#req-note').value.trim());
+      if (b.dataset.send === 'email') emailCompose({ to: a.email, subject: 'Documents needed for your rental application', text, dealId });
+      else if (b.dataset.send === 'text') location.href = smsLink(text);
+      else copy(text, 'Message');
+      close();
+    });
   }
 
   /* --------------------- sending an application back --------------------- */

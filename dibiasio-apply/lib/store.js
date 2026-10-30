@@ -78,6 +78,7 @@ const store = {
   listDeals: () => [...deals.values()],
   getDeal: (dealId) => deals.get(dealId),
   findDealByToken: (token) => [...deals.values()].find((d) => d.token === token),
+  findDealByGuarantorToken: (token) => [...deals.values()].find((d) => d.guarantorToken === token),
   saveDeal(deal) {
     deal.updatedAt = new Date().toISOString();
     deals.set(deal.id, deal);

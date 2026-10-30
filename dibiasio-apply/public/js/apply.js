@@ -131,7 +131,7 @@
         ${checklist()}
         <p class="small muted" style="margin-top:12px">Takes about ${form.minutes} minutes. You can take a photo of documents with your phone when you get to that step.</p>
         <div class="nav-row"><a class="btn secondary" href="/">Choose a different application</a><button class="btn" id="start">Start application</button></div>
-      </div>` + DRGuarantor.html();
+      </div>` + (form.isGuarantor ? '' : DRGuarantor.html());
     DRGuarantor.bind($app, guarantorContext);
     document.getElementById('start').onclick = () => go(0);
   }
@@ -394,9 +394,9 @@
         <p class="muted">Save this private link. You can use it any time to upload pay stubs, ID or anything else your agent asks for.</p>
         <div class="copy-row"><input class="input" readonly value="${esc(res.statusUrl)}" id="status-url"><button class="btn secondary" data-copy="status-url">Copy</button></div>
         <p style="margin-top:12px"><a href="${esc(res.statusUrl)}">Open my upload page</a></p></div>
-      <div class="card"><h2>Applying with roommates?</h2>
+      ${form.isGuarantor ? '' : `<div class="card"><h2>Applying with roommates?</h2>
         <p class="muted">${form.separateAdults ? 'Each adult needs to file their own application. ' : ''}Share this link so co-applicants are added to the same apartment application.</p>
-        <div class="copy-row"><input class="input" readonly value="${esc(res.coApplicantUrl)}" id="co-url"><button class="btn secondary" data-copy="co-url">Copy</button></div></div>` + DRGuarantor.html();
+        <div class="copy-row"><input class="input" readonly value="${esc(res.coApplicantUrl)}" id="co-url"><button class="btn secondary" data-copy="co-url">Copy</button></div></div>` + DRGuarantor.html()}`;
     DRGuarantor.bind($app, guarantorContext);
     $app.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
       const input = document.getElementById(b.dataset.copy);
