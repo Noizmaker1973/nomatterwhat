@@ -34,7 +34,7 @@ const AD_CONFIG = {
   // Shown in every ad's call to action.
   AGENT_NAME: 'James E. Guilford III',
   BROKERAGE:  'DiBiasio Realty',
-  PHONE:      '',                           // e.g. '(508) 555-0123'
+  PHONE:      '(857) 249-8825',
   EMAIL:      'james.guilford@gmail.com',
 
   // Optional: a page with photos + an inquiry form (your website listing, a
