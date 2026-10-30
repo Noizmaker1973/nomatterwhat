@@ -112,6 +112,25 @@ https://app.yougotlistings.com/credit-reports/create; the *Fill from Dibiasio* b
 page) fills the form by matching field names and labels, then clears the clipboard. The agent
 reviews and submits on YGL. Field matching lives in `public/js/ygl.js`.
 
+## Eviction & court-record checks
+
+Massachusetts eviction ("summary process") and civil cases are public on MassCourts, but its
+search sits behind a CAPTCHA and has no API, so the agent runs the search and the portal does the
+rest. **Eviction check** on an applicant card lists every adult (Beantown: each household member
+18+) with last/first name, date of birth, the addresses on the application and the applicant's own
+answer to the eviction question. **Search MassCourts** opens the court site with the name ready for
+the *Fill from Dibiasio* bookmark (names only, never SSNs). The agent records the result (No
+records found / Records found / Waived), each case found (type, outcome, court, case #, filing date,
+how the match was confirmed) and notes, and can attach the docket printout. Printouts stay out of
+the landlord package unless ticked. Results show on the card, in the deal's metrics, in the printed
+summary and in the activity log. The logic lives in `public/js/eviction.js`.
+
+Since May 2025, Massachusetts tenants can seal many eviction records; sealed cases don't appear
+on MassCourts. For automated, nationwide eviction searches, use a tenant-screening provider
+(a consumer reporting agency such as TransUnion SmartMove or RentSpree, which include eviction
+records) via `CREDIT_SCREENING_URL`. Screening reports are covered by the FCRA, including
+adverse-action notices.
+
 ## Credit reports
 
 Pulling a consumer credit report requires an account with a tenant-screening provider

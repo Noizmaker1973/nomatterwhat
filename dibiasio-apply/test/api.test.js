@@ -301,3 +301,22 @@ test('household SSNs are matched back even when members are reordered; agent can
   const members = (await call('/api/deals/' + deal.id)).body.applicants[0].application.answers.members;
   assert.deepEqual(members.map((m) => m.fullName + ':' + (m.ssn || '')), ['Bo Lima:444-55-6666', 'Ana Lima:111-22-3333', 'Cy Lima:']);
 });
+
+test('agents record eviction / court-record check results', async () => {
+  const deal = (await call('/api/deals')).body.find((d) => d.applicants.length);
+  const app = deal.applicants[0];
+  assert.equal(app.eviction.status, 'Not checked');
+  assert.equal((await call('/api/apps/' + app.id + '/eviction', { method: 'PUT', json: { status: 'Bogus' } })).status, 400);
+  assert.equal((await call('/api/apps/' + app.id + '/eviction', { method: 'PUT', json: { status: 'No records found' }, auth: false })).status, 401);
+  const saved = (await call('/api/apps/' + app.id + '/eviction', { method: 'PUT', json: {
+    status: 'Records found', notes: 'Matched by DOB',
+    cases: [{ person: app.name, type: 'Eviction (summary process)', outcome: 'Dismissed', court: 'Eastern Housing Court', caseNo: '24H84SP001234', filed: '2024-03-01' }, { filed: 'not a date' }],
+  } })).body;
+  assert.equal(saved.eviction.status, 'Records found');
+  assert.equal(saved.eviction.cases.length, 2);
+  assert.equal(saved.eviction.cases[0].caseNo, '24H84SP001234');
+  assert.equal(saved.eviction.cases[1].filed, '', 'bad dates dropped');
+  assert.match(saved.eviction.by, /^James/);
+  const full = (await call('/api/deals/' + deal.id)).body;
+  assert.ok(full.activity.some((x) => /Eviction check for .*Records found \(2 cases\)/.test(x.text)));
+});

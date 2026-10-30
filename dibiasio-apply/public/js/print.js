@@ -26,6 +26,7 @@
         <dt>Rent</dt><dd>${rent ? money(rent) : '—'}</dd>
         <dt>Stated household income</dt><dd>${income ? money(income) + '/mo' + (rent ? ' (' + (income / rent).toFixed(2) + '× rent)' : '') : '—'}</dd>
         <dt>Credit</dt><dd>${deal.applicants.map((a) => esc(a.name) + ': ' + esc(a.credit.status) + (a.credit.score ? ' (' + esc(a.credit.score) + ')' : '')).join('<br>') || '—'}</dd>
+        <dt>Eviction check</dt><dd>${deal.applicants.map((a) => esc(a.name) + ': ' + esc(DREviction.summary(a.eviction))).join('<br>') || '—'}</dd>
       </dl></section>
       ${showSheet ? '<section class="block"><h2>Deal sheet</h2>' + summaryHtml(sheetFields, deal.sheet, { skipBlank: true }) + '</section>' : ''}
       ${deal.applicants.map((a) => {

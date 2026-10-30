@@ -127,6 +127,7 @@ function appSummary(appRecord) {
     id: appRecord.id, formType: appRecord.formType, createdAt: appRecord.createdAt, updatedAt: appRecord.updatedAt,
     name: appRecord.summary.name, email: appRecord.summary.email, phone: appRecord.summary.phone,
     monthlyIncome: appRecord.summary.monthlyIncome, files: appRecord.files.map((f) => ({ ...f, inPackage: inPackage(f) })), credit: appRecord.credit,
+    eviction: appRecord.eviction || { status: 'Not checked', cases: [], notes: '' },
     reopened: appRecord.reopened || null, resubmittedAt: appRecord.resubmittedAt || null, versions: (appRecord.history || []).length + 1,
     editUrl: PUBLIC_URL + '/apply?u=' + appRecord.uploadToken,
   };
@@ -566,6 +567,25 @@ app.delete('/api/apps/:id/reopen', (req, res) => {
   res.json(appSummary(a));
 });
 
+// Result of the agent's eviction / court-records search (public/js/eviction.js).
+const EVICTION_STATUSES = ['Not checked', 'No records found', 'Records found', 'Waived'];
+app.put('/api/apps/:id/eviction', (req, res) => {
+  const a = store.getApp(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found.' });
+  const status = String(req.body.status || '');
+  if (!EVICTION_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status.' });
+  const text = (v, max = 300) => String(v == null ? '' : v).slice(0, max);
+  const cases = (Array.isArray(req.body.cases) ? req.body.cases : []).slice(0, 50).map((c) => ({
+    person: text(c.person, 120), type: text(c.type, 60), outcome: text(c.outcome, 60), court: text(c.court, 120),
+    caseNo: text(c.caseNo, 60), filed: /^\d{4}-\d{2}-\d{2}$/.test(c.filed || '') ? c.filed : '', notes: text(c.notes, 1000),
+  }));
+  a.eviction = { status, cases, notes: text(req.body.notes, 2000), checkedAt: new Date().toISOString(), by: req.agent.name };
+  store.saveApp(a);
+  const deal = store.getDeal(a.dealId);
+  if (deal) { log(deal, req.agent.name, 'Eviction check for ' + a.summary.name + ': ' + status + (cases.length ? ' (' + cases.length + ' case' + (cases.length > 1 ? 's' : '') + ')' : '')); store.saveDeal(deal); }
+  res.json(appSummary(a));
+});
+
 app.post('/api/apps/:id/files', upload.any(), (req, res) => {
   const a = store.getApp(req.params.id);
   if (!a) return res.status(404).json({ error: 'Not found.' });
@@ -592,7 +612,7 @@ app.get('/api/apps/:id/original.pdf', async (req, res, next) => {
 
 // Landlord package: original form(s) followed by every uploaded document, as one PDF.
 function docLabels(form) {
-  return Object.fromEntries(form.documents.map((d) => [d.id, d.label]).concat([['other', 'Other document'], ['credit_report', 'Credit report']]));
+  return Object.fromEntries(form.documents.map((d) => [d.id, d.label]).concat([['other', 'Other document'], ['credit_report', 'Credit report'], ['eviction_check', 'Court records search']]));
 }
 async function sendPackage(res, req, deal, apps) {
   const form = FORMS[deal.formType];

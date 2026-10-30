@@ -10,10 +10,12 @@ const { fillOriginal, pdfText } = require('./original');
 
 const LETTER = [612, 792];
 const MARGIN = 36;
-const DOC_ORDER = ['photo_id', 'pay_stubs', 'tax_return', 'other_income', 'student_verification', 'guarantor', 'pet_docs', 'reference_letter', 'other', 'credit_report'];
+const DOC_ORDER = ['photo_id', 'pay_stubs', 'tax_return', 'other_income', 'student_verification', 'guarantor', 'pet_docs', 'reference_letter', 'other', 'credit_report', 'eviction_check'];
 // Agents tick which uploads go into the merged PDF; credit reports start out
 // excluded because landlords usually get them from the screening company.
-const inPackage = (meta) => (typeof meta.inPackage === 'boolean' ? meta.inPackage : meta.docType !== 'credit_report');
+// Screening results (credit report, court-records printouts) stay out unless the agent ticks them.
+const PRIVATE_DOCS = ['credit_report', 'eviction_check'];
+const inPackage = (meta) => (typeof meta.inPackage === 'boolean' ? meta.inPackage : !PRIVATE_DOCS.includes(meta.docType));
 const rank = (docType) => { const i = DOC_ORDER.indexOf(docType); return i < 0 ? DOC_ORDER.length : i; };
 
 // Any image → upright JPEG at most 2000px on its long side.

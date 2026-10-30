@@ -28,6 +28,7 @@
     (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast((label || 'Link') + ' copied'), () => prompt('Copy this:', text));
   }
   const statusClass = (s) => ({ New: '', 'In review': 's-review', 'Docs needed': 's-docs', 'Sent to landlord': 's-sent', Approved: 's-ok', 'Lease signed': 's-ok', Denied: 's-bad', Withdrawn: 's-muted' }[s] || '');
+  const evictionClass = (ev) => ({ 'No records found': 's-ok', 'Records found': 's-docs', Waived: 's-muted' }[ev && ev.status] || '');
   const pill = (s) => '<span class="pill ' + statusClass(s) + '">' + esc(s) + '</span>';
   const ago = (iso) => {
     const m = Math.round((Date.now() - new Date(iso)) / 60000);
@@ -302,6 +303,7 @@
         <div class="metric"><span>Income ÷ rent</span><b>${ratio ? ratio.toFixed(2) + '×' : '—'}</b> ${ratio ? (ratio >= form.incomeMultiple ? '<span class="pill ok">meets ' + form.incomeMultiple + '×</span>' : '<span class="pill warn">under ' + form.incomeMultiple + '×</span>') : ''}</div>
         <div class="metric"><span>Documents</span><b>${deal.applicants.length ? (docsMissing ? docsMissing + ' missing' : 'Complete') : '—'}</b></div>
         <div class="metric"><span>Credit</span><b style="font-size:1rem">${credits.length ? credits.map(esc).join(', ') : '—'}</b></div>
+        <div class="metric"><span>Eviction check</span><b style="font-size:1rem">${deal.applicants.length ? deal.applicants.map((a) => esc(a.eviction.status)).join(', ') : '—'}</b></div>
       </div>
       <div class="deal-grid">
         <div>
@@ -386,7 +388,7 @@
     }
     box.innerHTML = deal.applicants.map((a, i) => {
       const app = a.application;
-      const docs = form.documents.concat([{ id: 'other', label: 'Other documents' }, { id: 'credit_report', label: 'Credit report' }]);
+      const docs = form.documents.concat([{ id: 'other', label: 'Other documents' }, { id: 'credit_report', label: 'Credit report' }, { id: 'eviction_check', label: 'Court records search' }]);
       const filesFor = (id) => a.files.filter((f) => f.docType === id || (id === 'other' && !docs.some((d) => d.id === f.docType)));
       const missing = missingDocs(form, a);
       return `<div class="card" data-app="${a.id}">
@@ -404,7 +406,7 @@
         <h4 style="margin:16px 0 0">Document checklist</h4>
         <ul class="checklist">${docs.map((d) => {
           const files = filesFor(d.id);
-          if (!files.length && !d.req && (d.id === 'other' || d.id === 'credit_report')) return '';
+          if (!files.length && !d.req && ['other', 'credit_report', 'eviction_check'].includes(d.id)) return '';
           return '<li><div class="row"><span>' + (files.length ? '✅' : d.req ? '⚠️' : '▫️') + ' ' + esc(d.label) + '</span>' + (files.length ? '' : d.req ? '<span class="pill warn">Missing</span>' : '<span class="muted small">If applicable</span>') + '</div>' +
             (files.length ? '<div class="files">' + files.map((f) => '<label class="pkg" title="Include in the merged PDF"><input type="checkbox" data-pkg="' + f.id + '"' + (f.inPackage ? ' checked' : '') + '></label><a href="/api/files/' + a.id + '/' + f.id + '" target="_blank" title="' + esc(f.name) + '">' + esc(f.name) + (f.by === 'agent' ? ' (agent)' : '') + '</a><a href="/api/files/' + a.id + '/' + f.id + '?download=1" title="Download">⬇</a>' + (/^image\//.test(f.mime) ? '<a href="/api/files/' + a.id + '/' + f.id + '?as=pdf" target="_blank" title="Open this photo as a PDF">PDF</a>' : '')).join('') + '</div>' : '') + '</li>';
         }).join('')}</ul>
@@ -429,6 +431,14 @@
             <label class="btn ghost small">Upload credit report<input type="file" class="hidden" data-credit-up accept="application/pdf,image/*"></label>
           </div>
           ${a.credit.updatedAt ? '<div class="help">Updated ' + new Date(a.credit.updatedAt).toLocaleString() + ' by ' + esc(a.credit.by || '') + '</div>' : ''}
+        </div>
+
+        <div class="subcard"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h4 style="margin:0">Eviction &amp; court records</h4><button class="btn small" data-eviction>Eviction check</button></div>
+          <div><span class="pill ${evictionClass(a.eviction)}">${esc(a.eviction.status)}</span> <span class="small">${esc(DREviction.summary(a.eviction))}</span></div>
+          ${a.eviction.cases.length ? '<ul class="small" style="margin:8px 0 0;padding-left:18px">' + a.eviction.cases.map((c) => '<li><b>' + esc(c.type) + '</b> · ' + esc(c.outcome) + (c.person ? ' · ' + esc(c.person) : '') + (c.court ? ' · ' + esc(c.court) : '') + (c.caseNo ? ' · #' + esc(c.caseNo) : '') + (c.filed ? ' · filed ' + esc(date(c.filed)) : '') + (c.notes ? '<br><span class="muted">' + esc(c.notes) + '</span>' : '') + '</li>').join('') + '</ul>' : ''}
+          ${a.eviction.notes ? '<p class="small muted" style="margin:6px 0 0">' + esc(a.eviction.notes) + '</p>' : ''}
+          <div class="inline-form" style="margin-top:8px"><label class="btn ghost small">Upload printout<input type="file" multiple class="hidden" data-eviction-up accept="application/pdf,image/*"></label>
+            ${a.eviction.checkedAt ? '<span class="help">Saved ' + new Date(a.eviction.checkedAt).toLocaleString() + ' by ' + esc(a.eviction.by || '') + '</span>' : ''}</div>
         </div>
 
         <details class="full"><summary>View full application</summary>
@@ -478,6 +488,15 @@
       if (rcp) rcp.onclick = () => copy(reopenMsg(a), 'Message');
       const rem = q('[data-reopen-email]');
       if (rem) rem.onclick = () => emailCompose({ to: a.email, subject: 'Please update your rental application', text: reopenMsg(a), dealId: deal.id });
+      q('[data-eviction-up]').onchange = (e) => uploadFor(a.id, 'eviction_check', e.target.files, deal.id);
+      q('[data-eviction]').onclick = () => DREviction.open({
+        formId: form.id, answers: a.application.answers, applicantName: a.name, eviction: a.eviction, copy, toast,
+        onSave: async (result) => {
+          await api('/api/apps/' + a.id + '/eviction', { method: 'PUT', body: result });
+          toast('Eviction check saved');
+          renderDeal(deal.id);
+        },
+      });
       q('[data-ygl]').onclick = () => DRYGL.open({
         formId: form.id, answers: a.application.answers, applicantName: a.name, copy, toast,
         onCopied: async () => {
@@ -592,7 +611,8 @@
       <div class="card"><h2>Credit checks on YouGotListings</h2>
         <p class="muted small">One-time setup: drag this button to your browser's bookmarks bar. If the bookmarks bar is hidden, press Ctrl+Shift+B (Cmd+Shift+B on a Mac).</p>
         <p><a class="btn secondary" id="ygl-bookmarklet" href="#" title="Drag me to your bookmarks bar">🔖 Fill from Dibiasio</a></p>
-        <p class="muted small" style="margin:0">Then on an application, click <b>Credit check (YGL)</b> → <b>Copy &amp; open YGL</b>. On YGL's credit report page, click the <b>Fill from Dibiasio</b> bookmark, review the filled fields, and submit.</p>
+        <p class="muted small" style="margin:0">Then on an application, click <b>Credit check (YGL)</b> → <b>Copy &amp; open YGL</b>. On YGL's credit report page, click the <b>Fill from Dibiasio</b> bookmark, review the filled fields, and submit.
+          The same bookmark fills the name on MassCourts' name search after <b>Eviction check</b> → <b>Search MassCourts</b>.</p>
       </div>
       <div class="card"><h2>Your apply links</h2><p class="muted small">Post these on listings or send them to anyone. Applications come straight to you.</p>
         ${Object.values(FORMS).map((f) => { const url = location.origin + '/apply?f=' + f.id + '&a=' + me.id; return '<div class="copy-row" style="margin-bottom:8px"><input class="input" readonly value="' + esc(url) + '"><button class="btn secondary small" data-copy="' + esc(url) + '">Copy ' + esc(f.short) + '</button></div>'; }).join('')}
