@@ -45,6 +45,7 @@ npm run optimize                         # find settings that held up on unseen 
 npm run configure -- TIMEFRAME=1d MA_PERIOD=50   # change .env settings (keeps everything else)
 npm run configure                        # show the current strategy settings
 npm run screen                           # suggest volatile top-50 coins for day trading
+npm run report                           # how your paper trades have done so far
 npm test                                 # unit tests
 ```
 

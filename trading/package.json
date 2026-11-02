@@ -11,6 +11,7 @@
     "optimize": "node src/optimize.js",
     "configure": "node src/configure.js",
     "screen": "node src/screen.js",
+    "report": "node src/report.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {
