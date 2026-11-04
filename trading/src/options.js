@@ -42,15 +42,28 @@ function realizedVol(closes, tfMs, lookback = 30) {
   return Math.sqrt(variance * ((365 * 86400e3) / tfMs));
 }
 
-// Round a strike to a sensible grid: BTC $1000, ETH $100, SOL/BNB $10.
+// Strike spacing of about 1% of the price, rounded to 1, 2 or 5 x a power of
+// ten: BTC ~$500, ETH ~$20, BNB ~$5, SOL ~$1-2.
+function strikeStep(S) {
+  const target = S * 0.01;
+  const pow = 10 ** Math.floor(Math.log10(target));
+  return [1, 2, 5, 10].map((m) => m * pow).reduce((best, x) => (Math.abs(x - target) < Math.abs(best - target) ? x : best));
+}
+
 function roundStrike(x, S) {
-  const step = 10 ** Math.max(Math.floor(Math.log10(S)) - 1, -2);
-  return Math.round(x / step) * step;
+  const step = strikeStep(S);
+  return Number((Math.round(x / step) * step).toPrecision(12));
+}
+
+// Volatility over the last 30 days of candles (or as many as there are), so
+// hourly and daily coins are measured over a comparable stretch of time.
+function recentVol(closes, tfMs) {
+  return realizedVol(closes, tfMs, Math.min(closes.length - 1, Math.round((30 * 86400e3) / tfMs)));
 }
 
 // direction: 'bullish' | 'bearish'; holding: you own the coin.
 function optionIdea({ direction, price: S, closes, tfMs, holding }) {
-  const sigma = realizedVol(closes, tfMs, Math.min(30, Math.round((30 * 86400e3) / tfMs)));
+  const sigma = recentVol(closes, tfMs);
   if (!sigma || !(S > 0)) return null;
   const T = DAYS / 365;
   const move = S * sigma * Math.sqrt(T); // one standard deviation over the period
@@ -96,7 +109,7 @@ function optionIdea({ direction, price: S, closes, tfMs, holding }) {
   // Bearish: bear call spread. Limited risk, unlike selling a naked call.
   const K1 = roundStrike(S + 0.5 * move, S);
   let K2 = roundStrike(S + 1.0 * move, S);
-  if (K2 <= K1) K2 = K1 + 10 ** Math.max(Math.floor(Math.log10(S)) - 1, -2);
+  if (K2 <= K1) K2 = K1 + strikeStep(S);
   const credit = bsPrice('call', S, K1, T, sigma) - bsPrice('call', S, K2, T, sigma);
   return {
     ...base,
@@ -114,4 +127,57 @@ function optionIdea({ direction, price: S, closes, tfMs, holding }) {
   };
 }
 
-module.exports = { optionIdea, bsPrice, normCdf, probAbove, realizedVol, roundStrike };
+// Iron condor: a bet that the price stays in a range until expiry.
+//   sell a put and a call about half a standard deviation from the price,
+//   buy a put and a call one full standard deviation away as protection.
+// You collect the net premium up front and keep all of it if the price ends
+// between the two sold strikes. The bought options cap the loss either way.
+function ironCondor({ price: S, closes, tfMs }) {
+  const sigma = recentVol(closes, tfMs);
+  if (!sigma || !(S > 0)) return null;
+  const T = DAYS / 365;
+  const move = S * sigma * Math.sqrt(T);
+  const step = strikeStep(S);
+
+  const sellPut = Math.min(roundStrike(S - 0.5 * move, S), roundStrike(S, S) - step);
+  const buyPut = Math.min(roundStrike(S - move, S), sellPut - step);
+  const sellCall = Math.max(roundStrike(S + 0.5 * move, S), roundStrike(S, S) + step);
+  const buyCall = Math.max(roundStrike(S + move, S), sellCall + step);
+
+  const legs = [
+    { action: 'buy', type: 'put', strike: buyPut, premium: bsPrice('put', S, buyPut, T, sigma) },
+    { action: 'sell', type: 'put', strike: sellPut, premium: bsPrice('put', S, sellPut, T, sigma) },
+    { action: 'sell', type: 'call', strike: sellCall, premium: bsPrice('call', S, sellCall, T, sigma) },
+    { action: 'buy', type: 'call', strike: buyCall, premium: bsPrice('call', S, buyCall, T, sigma) },
+  ];
+  // Premium collected per coin: what the sold options pay minus what the bought ones cost.
+  const credit = legs.reduce((sum, l) => sum + (l.action === 'sell' ? l.premium : -l.premium), 0);
+  const width = Math.max(sellPut - buyPut, buyCall - sellCall);
+  const maxLoss = width - credit;
+  const lower = sellPut - credit;
+  const upper = sellCall + credit;
+  return {
+    strategy: 'iron-condor',
+    title: 'Iron condor',
+    expiryDays: DAYS,
+    volatilityPct: sigma * 100,
+    expectedMove: move,
+    legs,
+    credit, // = the most you can make, per coin
+    maxProfit: credit,
+    maxLoss,
+    returnOnRiskPct: (credit / maxLoss) * 100,
+    // A premium under ~10% of the max loss rarely pays for the risk and fees.
+    worthIt: credit / maxLoss >= 0.1,
+    breakevens: [lower, upper],
+    range: [sellPut, sellCall],
+    probProfit: probAbove(S, lower, T, sigma) - probAbove(S, upper, T, sigma),
+    probMaxProfit: probAbove(S, sellPut, T, sigma) - probAbove(S, sellCall, T, sigma),
+    summary:
+      `Sell the ${sellPut} put and ${sellCall} call, buy the ${buyPut} put and ${buyCall} call, all expiring in ${DAYS} days. ` +
+      `You keep the whole premium if the price ends between ${sellPut} and ${sellCall}. ` +
+      `Beyond the bought strikes the loss stops growing.`,
+  };
+}
+
+module.exports = { optionIdea, ironCondor, bsPrice, normCdf, probAbove, realizedVol, roundStrike };

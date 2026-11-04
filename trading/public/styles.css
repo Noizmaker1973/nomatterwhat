@@ -127,6 +127,8 @@ section { margin-bottom: 20px; }
 .opt-row b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .options-body p { margin: 6px 0 0; color: var(--muted); }
 .options-body .opt-note { font-style: italic; }
+.options-body .condor-warn { color: var(--warn); font-weight: 600; }
+.options-body .condor-example { color: var(--text); background: #2ea04314; border-radius: 4px; padding: 6px 8px; }
 
 .suggest.KEEP { border-left-color: var(--accent); }
 

@@ -45,8 +45,38 @@ test('ideas match the direction and have limited, consistent risk', () => {
 });
 
 test('strikes round to a sensible grid', () => {
-  assert.strictEqual(roundStrike(77432, 77432), 77000);
-  assert.strictEqual(roundStrike(3912, 3912), 3900);
-  assert.strictEqual(roundStrike(176.4, 176.4), 180);
+  assert.strictEqual(roundStrike(77432, 77432), 77000); // $1000 steps (~1% of the price)
+  assert.strictEqual(roundStrike(3912, 3912), 3900); // $50 steps
+  assert.strictEqual(roundStrike(176.4, 176.4), 176); // $2 steps
+  assert.strictEqual(roundStrike(95.3, 95.3), 95); // $1 steps
   assert.ok(probAbove(100, 100, 0.1, 0.5) < 0.5, 'zero-drift lognormal median is below the spot');
+});
+
+const { ironCondor } = require('../src/options');
+
+test('iron condor: strikes bracket the price, risk is capped, numbers add up', () => {
+  for (const S of [95, 690, 2290, 78300]) {
+    const closes = Array.from({ length: 60 }, (_, i) => S * Math.exp(0.03 * Math.sin(i * 1.3)));
+    const ic = ironCondor({ price: S, closes, tfMs: 86400e3 });
+    const [buyPut, sellPut, sellCall, buyCall] = ic.legs.map((l) => l.strike);
+    assert.ok(buyPut < sellPut && sellPut < S && S < sellCall && sellCall < buyCall, `${S}: ${buyPut} ${sellPut} ${sellCall} ${buyCall}`);
+    assert.ok(ic.credit > 0, 'collects a premium');
+    const width = Math.max(sellPut - buyPut, buyCall - sellCall);
+    close(ic.credit + ic.maxLoss, width, 1e-9);
+    close(ic.breakevens[0], sellPut - ic.credit, 1e-9);
+    close(ic.breakevens[1], sellCall + ic.credit, 1e-9);
+    assert.ok(ic.probMaxProfit < ic.probProfit && ic.probProfit < 1 && ic.probMaxProfit > 0);
+    close(ic.returnOnRiskPct, (ic.credit / ic.maxLoss) * 100, 1e-9);
+  }
+});
+
+test('hourly coins measure volatility over ~30 days, not 30 hours', () => {
+  // Calm for weeks, then a wild last day: 30 hours would see mostly the wild part.
+  const hour = 3600e3;
+  const closes = [];
+  for (let i = 0; i < 480; i++) closes.push(100 * (1 + (i % 2 ? 0.002 : -0.002)));
+  for (let i = 0; i < 24; i++) closes.push(100 * (1 + (i % 2 ? 0.03 : -0.03)));
+  const ic = ironCondor({ price: 100, closes, tfMs: hour });
+  const shortWindow = realizedVol(closes, hour, 30) * 100;
+  assert.ok(ic.volatilityPct < shortWindow / 2, `${ic.volatilityPct} vs ${shortWindow}`);
 });

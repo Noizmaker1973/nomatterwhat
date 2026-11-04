@@ -7,7 +7,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { analyze, computeSeries, evaluateAt, MIN_CANDLES } = require('./strategy');
 const ind = require('./indicators');
-const { optionIdea } = require('./options');
+const { optionIdea, ironCondor } = require('./options');
 const { sizeBuy, DailyLossGuard } = require('./risk');
 const { timeframeMs } = require('./marketData');
 
@@ -529,6 +529,14 @@ class TradingEngine extends EventEmitter {
     return optionIdea({ direction, price, closes: candles.map((c) => c[4]), tfMs: tf, holding });
   }
 
+  // A range trade, shown for every coin whatever its signal (estimate only).
+  ironCondorFor(symbol) {
+    const candles = this.candles[symbol];
+    const price = this.prices[symbol];
+    if (!candles || !price) return null;
+    return ironCondor({ price, closes: candles.map((c) => c[4]), tfMs: timeframeMs(this.settingsFor(symbol).timeframe) });
+  }
+
   // Everything the dashboard shows, built from cached data (no API calls).
   snapshot() {
     const portfolio = this.portfolioSnapshot();
@@ -543,6 +551,7 @@ class TradingEngine extends EventEmitter {
         livePrice: this.prices[symbol] ?? s.livePrice,
         suggestion: this.suggest(symbol, portfolio),
         optionIdea: this.optionIdeaFor(symbol, s),
+        ironCondor: this.ironCondorFor(symbol),
       };
     });
     const lastPriceAt = Math.max(0, ...Object.values(this.priceAt));

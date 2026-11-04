@@ -105,6 +105,7 @@ function renderSignals(signals) {
     renderGauge(card, s);
     renderSuggestion(card, s);
     renderOptionIdea(card, s);
+    renderIronCondor(card, s);
 
     const i = s.indicators || {};
     const stats = $('.stats', card);
@@ -305,6 +306,59 @@ function renderOptionIdea(card, s) {
       { class: 'opt-note' },
       `Estimate from ${fmt(o.volatilityPct, 0)}% recent volatility. Real option prices differ, and usually pay more. ` +
         'Binance.US has no options, so this is for planning only; check real quotes before trading.'
+    )
+  );
+}
+
+// Iron condor for every coin: collect a premium betting the price stays in a range.
+const CONDOR_RISK = 1000; // example amount at risk for the "what you'd collect" line
+const usd = (n) => `$${money(n)}`;
+
+function renderIronCondor(card, s) {
+  const box = $('.condor', card);
+  const c = s.ironCondor;
+  box.classList.toggle('hidden', !c);
+  if (!c) return;
+  const [buyPut, sellPut, sellCall, buyCall] = c.legs;
+  const coins = CONDOR_RISK / c.maxLoss; // size so the worst case loses CONDOR_RISK
+  const coin = s.symbol.split('/')[0];
+  const lines = [
+    ['Sell', `${fmt(sellPut.strike, 0)} put (~${money(sellPut.premium)}) + ${fmt(sellCall.strike, 0)} call (~${money(sellCall.premium)})`],
+    ['Buy (protection)', `${fmt(buyPut.strike, 0)} put (~${money(buyPut.premium)}) + ${fmt(buyCall.strike, 0)} call (~${money(buyCall.premium)})`],
+    ['Expires in', `${c.expiryDays} days`],
+    ['Premium you collect', `~${money(c.credit)} per ${coin}`],
+    ['Keep it all if price ends', `between ${fmt(c.range[0], 0)} and ${fmt(c.range[1], 0)}`],
+    ['Max loss', `${money(c.maxLoss)} per ${coin} (below ${fmt(buyPut.strike, 0)} or above ${fmt(buyCall.strike, 0)})`],
+    ['Breakevens', `${fmt(c.breakevens[0])} and ${fmt(c.breakevens[1])}`],
+    ['Return on risk', `${fmt(c.returnOnRiskPct, 0)}% if you keep the whole premium`],
+    ['Chance of profit', `~${Math.round(c.probProfit * 100)}% (model) · keep it all ~${Math.round(c.probMaxProfit * 100)}%`],
+  ];
+  const body = $('.condor-body', box);
+  const warning = c.worthIt
+    ? []
+    : [el('p', { class: 'condor-warn' }, `Not worth it right now: you'd risk ${usd(c.maxLoss)} per ${coin} to collect ${usd(c.credit)}. ` +
+        'Premiums are thin because the coin has been calm. Wait for more volatility.')];
+  body.replaceChildren(
+    ...warning,
+    ...lines.map(([k, v]) => {
+      const row = el('div', { class: 'opt-row' });
+      row.append(el('span', {}, k), el('b', {}, v));
+      return row;
+    }),
+    el(
+      'p',
+      { class: 'condor-example' },
+      `Example: to risk at most ${usd(CONDOR_RISK)}, trade options covering ≈ ${fmt(coins, coins < 10 ? 3 : 0)} ${coin}. ` +
+        `You'd collect ≈ ${usd(coins * c.credit)} up front and keep all of it if ${coin} ends between ` +
+        `${fmt(c.range[0], 0)} and ${fmt(c.range[1], 0)} in ${c.expiryDays} days.`
+    ),
+    el('p', {}, c.summary),
+    el(
+      'p',
+      { class: 'opt-note' },
+      `Estimate from ${fmt(c.volatilityPct, 0)}% recent volatility; real premiums differ. Best when the coin is chopping ` +
+        'around its average (HOLD); a strong breakout either way is its weak spot. Binance.US has no options: ' +
+        'check real quotes at a broker that lists them.'
     )
   );
 }
